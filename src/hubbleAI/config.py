@@ -174,8 +174,8 @@ VALID_RATIO: float = 0.95  # valid ends at 95%, test is 95%-100%
 FORECAST_OUTPUT_COLS: List[str] = [
     "entity",
     "liquidity_group",
-    "as_of_date",
-    "target_week",
+    "week_start",
+    "target_week_start",
     "horizon",
     "y_pred_point",
     "y_pred_p10",
