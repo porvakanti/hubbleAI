@@ -21,25 +21,27 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+from hubbleAI.config import (
+    DATA_RAW_DIR,
+    DATA_PROCESSED_DIR,
+    RUN_STATUS_DIR,
+    FORECASTS_DIR,
+    METRICS_DIR,
+    HORIZONS,
+    LIQUIDITY_GROUPS,
+    TIER2_LIST,
+    LP_FORECAST_COLS,
+    TRP_EXTRA_FEATURES,
+    ACTUALS_FILENAME,
+    LP_FILENAME,
+    FX_FILENAME,
+    MIN_HISTORY_WEEKS,
+)
 
-# These paths assume the following layout at repo root:
-#   data/raw/        <-- input files (actuals, LP, FX)
-#   data/processed/  <-- outputs written by the pipeline
-#
-# In a real project, these could come from environment variables or a config
-# file; for now we keep them simple and file-based.
-REPO_ROOT = Path(__file__).resolve().parents[2]  # src/hubbleAI/pipeline.py -> repo root
-DATA_RAW_DIR = REPO_ROOT / "data" / "raw"
-DATA_PROCESSED_DIR = REPO_ROOT / "data" / "processed"
-RUN_STATUS_DIR = DATA_PROCESSED_DIR / "run_status"
-FORECASTS_DIR = DATA_PROCESSED_DIR / "forecasts"
-METRICS_DIR = DATA_PROCESSED_DIR / "metrics"
-
+# Ensure directories exist
 RUN_STATUS_DIR.mkdir(parents=True, exist_ok=True)
 FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 METRICS_DIR.mkdir(parents=True, exist_ok=True)
@@ -69,7 +71,11 @@ class ForecastRunStatus:
 
     @property
     def latest_forecasts_path(self) -> Optional[Path]:
-        return Path(self.output_paths.get("forecasts")) if "forecasts" in self.output_paths else None
+        return (
+            Path(self.output_paths.get("forecasts"))
+            if "forecasts" in self.output_paths
+            else None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +87,7 @@ def get_default_as_of_date(today: Optional[date] = None) -> date:
     """
     Return the default as_of_date for a run.
 
-    Convention (can be adjusted):
+    Convention:
     - Use the last fully closed week whose data should be available
       by the time we run (e.g. previous Friday / banking day).
     - For now we use (today - 3 days) as a simple placeholder.
@@ -104,10 +110,9 @@ def check_data_availability(as_of_date: date) -> Tuple[bool, List[str]]:
     """
     missing: List[str] = []
 
-    # These are placeholders; adjust names to match actual files in data/raw.
-    actuals_path = DATA_RAW_DIR / "actuals.csv"
-    lp_path = DATA_RAW_DIR / "liquidity_plan.csv"
-    fx_path = DATA_RAW_DIR / "fx_rates.csv"
+    actuals_path = DATA_RAW_DIR / ACTUALS_FILENAME
+    lp_path = DATA_RAW_DIR / LP_FILENAME
+    fx_path = DATA_RAW_DIR / FX_FILENAME
 
     if not actuals_path.exists():
         missing.append("ACTUALS_FILE")
@@ -116,61 +121,200 @@ def check_data_availability(as_of_date: date) -> Tuple[bool, List[str]]:
     if not fx_path.exists():
         missing.append("FX_FILE")
 
-    # In the future we could inspect dates inside the files and verify that
+    # TODO: In the future, inspect dates inside the files and verify that
     # they cover as_of_date and the required horizons.
 
     is_ready = len(missing) == 0
     return is_ready, missing
 
 
-def _load_and_prepare_data(as_of_date: date) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def _load_and_prepare_data(
+    as_of_date: date,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Load and minimally prepare actuals, LP, and FX data.
-
-    Currently file-based (data/raw). In the future, this function will be
-    the main place to swap in Denodo / Databricks / Reval connectors.
+    Load and prepare all data sources for forecasting.
 
     Returns:
-        (actuals_df, lp_df, fx_df)
+        Tuple of (model_ready_df, tier2_df)
+        - model_ready_df: DataFrame with features and targets for Tier-1 entities
+        - tier2_df: DataFrame with Tier-2 entities for LP pass-through
     """
-    # TODO: Replace placeholder filenames with the actual names used in the project.
-    actuals_path = DATA_RAW_DIR / "actuals.csv"
-    lp_path = DATA_RAW_DIR / "liquidity_plan.csv"
-    fx_path = DATA_RAW_DIR / "fx_rates.csv"
+    from hubbleAI.data_prep import prepare_weekly_data
+    from hubbleAI.data_prep.prepare import filter_tier1_with_history, add_target_columns
+    from hubbleAI.features import build_all_features
+    from hubbleAI.models.lightgbm_model import assign_split
 
-    actuals_df = pd.read_csv(actuals_path)
-    lp_df = pd.read_csv(lp_path)
-    fx_df = pd.read_csv(fx_path)
+    # Prepare weekly data (loads and merges all sources)
+    merged_df, _ = prepare_weekly_data(as_of_date=as_of_date)
 
-    # TODO: filter by as_of_date, apply any necessary preprocessing
-    # (e.g. convert to weekly, join FX, etc.). For now we just return
-    # the raw DataFrames.
-    return actuals_df, lp_df, fx_df
+    # Build all features
+    featured_df = build_all_features(merged_df)
+
+    # Add target columns
+    featured_df = add_target_columns(featured_df)
+
+    # Filter Tier-1 entities with sufficient history for ML
+    tier1_df = filter_tier1_with_history(featured_df, MIN_HISTORY_WEEKS)
+
+    # Get Tier-2 entities (for LP pass-through)
+    tier2_df = featured_df[featured_df["tier"] == "Tier2"].copy()
+
+    # Add target_week_start for output purposes
+    tier1_df["target_week_start"] = tier1_df["week_start"] + pd.Timedelta(days=7)
+
+    # Assign train/valid/test split
+    tier1_df = assign_split(tier1_df)
+
+    # Drop rows without full 8-week future targets
+    target_cols = [f"y_h{h}" for h in HORIZONS]
+    model_ready_df = tier1_df.dropna(subset=target_cols).copy()
+
+    return model_ready_df, tier2_df
 
 
 def _build_and_run_models(
     as_of_date: date,
-    actuals_df: pd.DataFrame,
-    lp_df: pd.DataFrame,
-    fx_df: pd.DataFrame,
+    model_ready_df: pd.DataFrame,
+    tier2_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """
     Run the LG × horizon models and return a unified forecast DataFrame.
 
-    This function is a placeholder for the real modeling logic. It should:
+    This function:
+    - Trains LightGBM models for each (Liquidity Group × Horizon) combination
+    - Uses horizon-specific LP features (W1..W4 for H1..H4; none for H5..H8)
+    - Generates predictions for Tier-1 entities
+    - Adds Tier-2 LP pass-through forecasts
 
-    - Build feature matrices per (Liquidity Group × horizon) using horizon-specific
-      LP features (W1..W4 only for H1..H4; none for H5..H8).
-    - Load trained LightGBM models for each (LG × horizon) and for each prediction
-      type (point, p10, p50, p90), or train them if we are still in dev mode.
-    - Generate a DataFrame with 4 predictions per row:
-        y_pred_point, y_pred_p10, y_pred_p50, y_pred_p90
-    - Merge Tier-2 entities with LP pass-through forecasts.
+    Args:
+        as_of_date: The as-of date for the forecast.
+        model_ready_df: Prepared DataFrame for Tier-1 ML forecasting.
+        tier2_df: DataFrame with Tier-2 entities for LP pass-through.
 
-    For now, this returns an empty DataFrame as a stub.
+    Returns:
+        Unified forecast DataFrame.
     """
-    # TODO: implement actual modeling logic using src/hubbleAI/features and src/hubbleAI/models
-    columns = [
+    from hubbleAI.features import get_base_feature_cols, get_feature_cols_for_horizon
+    from hubbleAI.features.builder import get_trp_extra_features
+    from hubbleAI.models.lightgbm_model import (
+        train_lgbm_model,
+        predict_lgbm,
+    )
+
+    all_forecasts = []
+
+    # Get base feature columns (without LP)
+    base_feature_cols = get_base_feature_cols(model_ready_df)
+
+    # Get TRP-specific extra features
+    trp_extra_features = get_trp_extra_features(model_ready_df)
+
+    # Train and predict for each (LG × Horizon) combination
+    for lg in LIQUIDITY_GROUPS:
+        # Filter to liquidity group
+        df_lg = model_ready_df[model_ready_df["liquidity_group"] == lg].copy()
+
+        if df_lg.empty:
+            logger.warning(f"No data for liquidity group {lg}, skipping")
+            continue
+
+        # Determine extra features for this LG
+        extra_features = trp_extra_features if lg == "TRP" else []
+
+        for horizon in HORIZONS:
+            logger.info(f"Training model for {lg} - Horizon {horizon}")
+
+            # Get feature columns for this horizon (with horizon-specific LP)
+            feature_cols = get_feature_cols_for_horizon(
+                horizon, base_feature_cols, all_cols=df_lg.columns.tolist()
+            )
+
+            # Add extra features if available
+            if extra_features:
+                feature_cols = feature_cols + [
+                    f
+                    for f in extra_features
+                    if f not in feature_cols and f in df_lg.columns
+                ]
+
+            target_col = f"y_h{horizon}"
+
+            # Drop rows with missing target
+            df_horizon = df_lg.dropna(subset=[target_col]).copy()
+
+            if df_horizon.empty:
+                logger.warning(
+                    f"No valid targets for {lg} H{horizon}, skipping"
+                )
+                continue
+
+            try:
+                # Train model
+                model, val_metrics, best_iter = train_lgbm_model(
+                    df_horizon, feature_cols, target_col
+                )
+
+                logger.info(
+                    f"{lg} H{horizon}: val_wape={val_metrics['wape']:.4f}, "
+                    f"best_iter={best_iter}"
+                )
+
+                # Generate predictions for all splits
+                predictions = predict_lgbm(model, df_horizon, feature_cols)
+
+                # Build output DataFrame
+                output = df_horizon[
+                    ["entity", "liquidity_group", "week_start"]
+                ].copy()
+                output["as_of_date"] = as_of_date
+                output["horizon"] = horizon
+                output["target_week"] = output["week_start"] + pd.Timedelta(
+                    weeks=horizon
+                )
+                output["y_pred_point"] = predictions
+
+                # TODO: implement proper quantile models for p10/p50/p90 in a later task
+                output["y_pred_p10"] = np.nan
+                output["y_pred_p50"] = np.nan
+                output["y_pred_p90"] = np.nan
+
+                output["model_type"] = "lightgbm"
+                output["is_pass_through"] = False
+
+                all_forecasts.append(output)
+
+            except Exception as e:
+                logger.error(f"Error training {lg} H{horizon}: {e}")
+                continue
+
+    # Add Tier-2 LP pass-through forecasts
+    tier2_forecasts = _build_tier2_passthrough(as_of_date, tier2_df)
+    if not tier2_forecasts.empty:
+        all_forecasts.append(tier2_forecasts)
+
+    # Combine all forecasts
+    if all_forecasts:
+        forecasts_df = pd.concat(all_forecasts, ignore_index=True)
+    else:
+        # Return empty DataFrame with correct schema
+        forecasts_df = pd.DataFrame(
+            columns=[
+                "entity",
+                "liquidity_group",
+                "as_of_date",
+                "target_week",
+                "horizon",
+                "y_pred_point",
+                "y_pred_p10",
+                "y_pred_p50",
+                "y_pred_p90",
+                "model_type",
+                "is_pass_through",
+            ]
+        )
+
+    # Clean up output columns
+    output_cols = [
         "entity",
         "liquidity_group",
         "as_of_date",
@@ -183,7 +327,65 @@ def _build_and_run_models(
         "model_type",
         "is_pass_through",
     ]
-    return pd.DataFrame(columns=columns)
+    forecasts_df = forecasts_df[output_cols]
+
+    return forecasts_df
+
+
+def _build_tier2_passthrough(
+    as_of_date: date,
+    tier2_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build LP pass-through forecasts for Tier-2 entities.
+
+    For Tier-2 entities:
+    - Horizons 1-4: Use LP forecast values
+    - Horizons 5-8: No forecast (LP doesn't extend that far)
+
+    Args:
+        as_of_date: The as-of date for the forecast.
+        tier2_df: DataFrame with Tier-2 entity data.
+
+    Returns:
+        DataFrame with Tier-2 pass-through forecasts.
+    """
+    if tier2_df.empty:
+        return pd.DataFrame()
+
+    tier2_forecasts = []
+
+    # Only horizons 1-4 have LP forecasts
+    for horizon in [1, 2, 3, 4]:
+        lp_col = LP_FORECAST_COLS.get(horizon)
+        if lp_col is None or lp_col not in tier2_df.columns:
+            continue
+
+        # Get rows with valid LP for this horizon
+        df_h = tier2_df[tier2_df[lp_col].notna()].copy()
+
+        if df_h.empty:
+            continue
+
+        output = df_h[["entity", "liquidity_group", "week_start"]].copy()
+        output["as_of_date"] = as_of_date
+        output["horizon"] = horizon
+        output["target_week"] = output["week_start"] + pd.Timedelta(weeks=horizon)
+        output["y_pred_point"] = df_h[lp_col].values
+
+        # TODO: implement proper quantile models for p10/p50/p90 in a later task
+        output["y_pred_p10"] = np.nan
+        output["y_pred_p50"] = np.nan
+        output["y_pred_p90"] = np.nan
+
+        output["model_type"] = "lp_passthrough"
+        output["is_pass_through"] = True
+
+        tier2_forecasts.append(output)
+
+    if tier2_forecasts:
+        return pd.concat(tier2_forecasts, ignore_index=True)
+    return pd.DataFrame()
 
 
 def _save_run_status(status: ForecastRunStatus) -> Path:
@@ -233,12 +435,20 @@ def run_forecast(
         - Return a ForecastRunStatus with status="data_missing" and the missing inputs.
     - If data is sufficient (or force_run is True):
         - Load and prepare input data.
-        - Build features and run models to produce 4 predictions per row
-          (point, p10, p50, p90).
+        - Build features and run models to produce point predictions.
         - Merge Tier-2 LP pass-through outputs.
         - Store forecast outputs under data/processed/forecasts/{as_of_date}/.
         - Optionally compute backtest metrics (future).
         - Return a ForecastRunStatus with status="success".
+
+    Args:
+        as_of_date: The as-of date for the forecast run. Defaults to latest valid date.
+        trigger_source: Whether triggered by 'scheduler' or 'manual'.
+        force_run: If True, run even if some data is missing.
+        compute_backtest_metrics: If True, compute and store backtest metrics.
+
+    Returns:
+        ForecastRunStatus with run details.
     """
     if as_of_date is None:
         as_of_date = get_default_as_of_date()
@@ -272,8 +482,13 @@ def run_forecast(
         return status
 
     try:
-        actuals_df, lp_df, fx_df = _load_and_prepare_data(as_of_date)
-        forecasts_df = _build_and_run_models(as_of_date, actuals_df, lp_df, fx_df)
+        # Load and prepare data
+        logger.info("Loading and preparing data...")
+        model_ready_df, tier2_df = _load_and_prepare_data(as_of_date)
+
+        # Build and run models
+        logger.info("Training models and generating forecasts...")
+        forecasts_df = _build_and_run_models(as_of_date, model_ready_df, tier2_df)
 
         # Save forecasts
         as_of_dir = FORECASTS_DIR / as_of_date.isoformat()
@@ -288,7 +503,7 @@ def run_forecast(
             # TODO: compute and save metrics under METRICS_DIR
             pass
 
-        message = "Forecast run completed successfully."
+        message = f"Forecast run completed successfully. Generated {len(forecasts_df)} forecasts."
         logger.info(message)
         status = ForecastRunStatus(
             run_id=run_id,
