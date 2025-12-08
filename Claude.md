@@ -81,7 +81,7 @@ The list of Tier‑2 entities / (Entity, Liquidity Group) combinations should be
 ### 2.3 Models / Algorithms
 
 - Primary model: **LightGBM**.
-- Secondary model: **XGBoost** is allowed **later**, after the core LightGBM pipeline works.
+- Secondary model: **XGBoost**, after the core LightGBM pipeline works.
 - LSTM, SARIMAX and other model types are **future ideas** – do **not** add them unless explicitly requested.
 
 ### 2.4 Liquidity Plan (LP) Features – horizon‑specific
@@ -133,6 +133,36 @@ The output schema for forecasts should include at least:
 - `model_name` / `model_type`
 - `is_pass_through` (for Tier‑2)
 
+### 2.6 Data Sources & I/O Strategy (Current vs Future)
+
+  Current phase (what you should implement **now**):
+
+    - All inputs are **local files** under `data/raw`:
+      - Actuals (e.g. `actuals.csv`)
+      - Liquidity Plan (e.g. `liquidity_plan.csv`)
+      - FX rates (e.g. `fx_rates.csv`)
+    - All outputs are **local files** under `data/processed`:
+      - Forecasts under `data/processed/forecasts/{as_of_date}/`
+      - Run status under `data/processed/run_status/`
+      - Metrics under `data/processed/metrics/`
+
+  Future phase (what you should be prepared for, but **not** implement yet):
+
+    - Treasury data (actuals and LP) may come from:
+      - Denodo views
+      - Direct connection to Reval
+      - Databricks tables
+    - FX data may come from:
+      - An internal reference system
+      - A central rates table on Databricks
+
+  DESIGN RULE:
+
+    - Keep all external I/O and data-source-specific logic inside **well-isolated modules**, especially under `src/hubbleAI/data_prep`.
+    - Do **not** tightly couple the rest of the pipeline (features, models, evaluation, UI) to local CSV files.
+    - For example, implement a function like `load_and_prepare_data(as_of_date)` that currently reads CSVs, but could later read from Denodo/Databricks/Reval without changing calling code.
+    - Do **not** attempt to add Denodo / Databricks / Reval connectors now; just design the interfaces so they can be swapped in later.
+
 ---
 
 ## 3. Evaluation Requirements
@@ -157,29 +187,45 @@ Metrics to support in `evaluation/metrics.py`:
 
 ---
 
-## 4. Refactoring Guidelines
+## 4. Refactoring & Experimentation Guidelines
 
 Your job is to **extract and improve** code from `notebooks/TCF_V2.ipynb`, **not to discard it**.
 
-1. Move stable logic into `src/hubbleAI/` (under the structure above).
+1. Move stable logic into `src/hubbleAI/` (under the structure described above).
 2. Keep the notebook for:
    - Exploration
    - Visualisation
-   - Demonstrations using the refactored package
+   - Experiments, model tweaks, and backtesting
 
-Refactor with these principles:
+### 4.1 Experiments & Development Flow
+
+- The primary place to run experiments, backtests, and model changes is the **notebook(s)** (e.g. `TCF_V2.ipynb`).
+- Do **not** try to implement a full “development playground” page inside Streamlit for now.
+- Once the core pipeline and UI are stable, we may later add a dedicated **Dev / Sandbox** page, but only after explicit agreement.
+- When an experiment matures into a stable approach, refactor it from the notebook into reusable functions/modules under `src/hubbleAI` (e.g. `features/`, `models/`, `evaluation/`).
+
+### 4.2 Refactoring Principles
+
+When moving logic out of the notebook:
 
 - Use **small, pure functions** with clear inputs/outputs.
 - Add **docstrings** and basic **type hints** for public functions.
-- Centralise constants in config (e.g. entity lists, LP column names, horizon list).
+- Centralise constants and configuration in `config/` (e.g. entity lists, LP column names, horizon list).
 - Avoid introducing heavy dependencies unless necessary.
-- Where you see opportunities to simplify or speed up things, first **describe the proposed change**, then apply it once approved.
+- Where you see opportunities to simplify or speed up things:
+  - First **describe the proposed change** (what, why, impact).
+  - Apply it only after it’s been agreed.
 
----
+The goal is to keep:
+
+- **Notebooks** → for ideas, experimentation, and analysis.
+- **`src/hubbleAI`** → for hardened, reusable, testable code that the pipeline and UI depend on.
+
+----------
 
 ## 5. Streamlit UI & Scheduling
 
-Streamlit is **required**, not optional. It is the main interface for the treasury team.
+Streamlit UI is **required**. It is the main interface for the treasury team.
 
 There will be at least **two core pages**, plus optional advanced pages.
 
@@ -245,7 +291,7 @@ Core features:
   - Optionally per Entity + Liquidity Group
   - Net TRR+TRP
 
-- Typical visuals:
+- Typical visuals (Interactive wherever possible, refer to the notebook for some sample visuals, and reuse wherever makes sense):
   - Line charts of error metrics (WAPE, MAE, RMSE) by week.
   - Bars or heatmaps by horizon (H1–H8).
   - Direction accuracy plots.
