@@ -123,8 +123,8 @@ The output schema for forecasts should include at least:
 
 - `entity`
 - `liquidity_group`
-- `as_of_date`
-- `target_week`
+- `week_start`
+- `target_week_start`
 - `horizon`
 - `y_pred_point`
 - `y_pred_p10`

@@ -270,7 +270,7 @@ def generate_predictions_for_lg_horizon(
     # Build output DataFrame
     output = df_lg[["entity", "liquidity_group", "week_start"]].copy()
     output["horizon"] = horizon
-    output["target_week"] = output["week_start"] + pd.Timedelta(weeks=horizon)
+    output["target_week_start"] = output["week_start"] + pd.Timedelta(weeks=horizon)
     output["y_actual"] = df_lg[target_col].values
     output["y_pred_point"] = predictions
 

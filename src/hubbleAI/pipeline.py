@@ -266,9 +266,8 @@ def _build_and_run_models(
                 output = df_horizon[
                     ["entity", "liquidity_group", "week_start"]
                 ].copy()
-                output["as_of_date"] = as_of_date
                 output["horizon"] = horizon
-                output["target_week"] = output["week_start"] + pd.Timedelta(
+                output["target_week_start"] = output["week_start"] + pd.Timedelta(
                     weeks=horizon
                 )
                 output["y_pred_point"] = predictions
@@ -301,8 +300,8 @@ def _build_and_run_models(
             columns=[
                 "entity",
                 "liquidity_group",
-                "as_of_date",
-                "target_week",
+                "week_start",
+                "target_week_start",
                 "horizon",
                 "y_pred_point",
                 "y_pred_p10",
@@ -317,8 +316,8 @@ def _build_and_run_models(
     output_cols = [
         "entity",
         "liquidity_group",
-        "as_of_date",
-        "target_week",
+        "week_start",
+        "target_week_start",
         "horizon",
         "y_pred_point",
         "y_pred_p10",
@@ -368,9 +367,8 @@ def _build_tier2_passthrough(
             continue
 
         output = df_h[["entity", "liquidity_group", "week_start"]].copy()
-        output["as_of_date"] = as_of_date
         output["horizon"] = horizon
-        output["target_week"] = output["week_start"] + pd.Timedelta(weeks=horizon)
+        output["target_week_start"] = output["week_start"] + pd.Timedelta(weeks=horizon)
         output["y_pred_point"] = df_h[lp_col].values
 
         # TODO: implement proper quantile models for p10/p50/p90 in a later task
