@@ -1,0 +1,16 @@
+# Data files - large/sensitive
+data/raw/
+data/processed/
+
+# Optional: ignore all CSVs everywhere (alternative approach)
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv/
+data/raw/20251120_eurofxref-hist.csv
