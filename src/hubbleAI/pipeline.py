@@ -29,6 +29,7 @@ from hubbleAI.config import (
     DATA_PROCESSED_DIR,
     RUN_STATUS_DIR,
     FORECASTS_DIR,
+    BACKTESTS_DIR,
     METRICS_DIR,
     HORIZONS,
     LIQUIDITY_GROUPS,
@@ -39,16 +40,21 @@ from hubbleAI.config import (
     LP_FILENAME,
     FX_FILENAME,
     MIN_HISTORY_WEEKS,
+    FORECAST_OUTPUT_COLS,
 )
 
 # Ensure directories exist
 RUN_STATUS_DIR.mkdir(parents=True, exist_ok=True)
 FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
+BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
 METRICS_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger(__name__)
 
 RunStatus = Literal["success", "data_missing", "skipped", "error"]
+
+
+ForecastMode = Literal["forward", "backtest"]
 
 
 @dataclass
@@ -61,7 +67,9 @@ class ForecastRunStatus:
 
     run_id: str
     as_of_date: date
-    trigger_source: Literal["scheduler", "manual"]
+    ref_week_start: date  # Monday reference week (always a Monday)
+    mode: ForecastMode  # "forward" or "backtest"
+    trigger_source: Literal["scheduler", "manual", "notebook"]
     status: RunStatus
     created_at: datetime
     message: str
@@ -74,6 +82,14 @@ class ForecastRunStatus:
         return (
             Path(self.output_paths.get("forecasts"))
             if "forecasts" in self.output_paths
+            else None
+        )
+
+    @property
+    def latest_backtest_path(self) -> Optional[Path]:
+        return (
+            Path(self.output_paths.get("backtest"))
+            if "backtest" in self.output_paths
             else None
         )
 
@@ -130,19 +146,19 @@ def check_data_availability(as_of_date: date) -> Tuple[bool, List[str]]:
 
 def _load_and_prepare_data(
     as_of_date: date,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, date]:
     """
     Load and prepare all data sources for forecasting.
 
     Returns:
-        Tuple of (model_ready_df, tier2_df)
+        Tuple of (model_ready_df, tier2_df, ref_week_start)
         - model_ready_df: DataFrame with features and targets for Tier-1 entities
         - tier2_df: DataFrame with Tier-2 entities for LP pass-through
+        - ref_week_start: The latest Monday in the dataset (reference week)
     """
     from hubbleAI.data_prep import prepare_weekly_data
     from hubbleAI.data_prep.prepare import filter_tier1_with_history, add_target_columns
     from hubbleAI.features import build_all_features
-    from hubbleAI.models.lightgbm_model import assign_split
 
     # Prepare weekly data (loads and merges all sources)
     merged_df, _ = prepare_weekly_data(as_of_date=as_of_date)
@@ -153,6 +169,19 @@ def _load_and_prepare_data(
     # Add target columns
     featured_df = add_target_columns(featured_df)
 
+    # Compute ref_week_start (latest Monday in dataset)
+    # week_start is already Monday-aligned from aggregation.py
+    ref_week_start = pd.to_datetime(featured_df["week_start"].max()).date()
+
+    # Verify ref_week_start is a Monday (weekday() == 0)
+    if ref_week_start.weekday() != 0:
+        # Normalize to previous Monday if not already Monday
+        days_since_monday = ref_week_start.weekday()
+        ref_week_start = ref_week_start - timedelta(days=days_since_monday)
+        logger.warning(
+            f"ref_week_start normalized to Monday: {ref_week_start}"
+        )
+
     # Filter Tier-1 entities with sufficient history for ML
     tier1_df = filter_tier1_with_history(featured_df, MIN_HISTORY_WEEKS)
 
@@ -162,57 +191,96 @@ def _load_and_prepare_data(
     # Add target_week_start for output purposes
     tier1_df["target_week_start"] = tier1_df["week_start"] + pd.Timedelta(days=7)
 
-    # Assign train/valid/test split
-    tier1_df = assign_split(tier1_df)
-
-    # Drop rows without full 8-week future targets
-    target_cols = [f"y_h{h}" for h in HORIZONS]
-    model_ready_df = tier1_df.dropna(subset=target_cols).copy()
-
-    return model_ready_df, tier2_df
+    return tier1_df, tier2_df, ref_week_start
 
 
-def _build_and_run_models(
-    as_of_date: date,
-    model_ready_df: pd.DataFrame,
+def _assign_backtest_split(
+    df: pd.DataFrame,
+    train_ratio: float = 0.85,
+    valid_ratio: float = 0.10,
+) -> pd.DataFrame:
+    """
+    Assign train/valid/test split based on chronological 85/10/5 split.
+
+    Args:
+        df: DataFrame with week_start column.
+        train_ratio: Fraction of weeks for training (default 0.85).
+        valid_ratio: Fraction of weeks for validation (default 0.10).
+
+    Returns:
+        DataFrame with 'split' column added.
+    """
+    df = df.copy()
+    unique_weeks = sorted(df["week_start"].drop_duplicates().tolist())
+    n = len(unique_weeks)
+
+    train_end_idx = int(n * train_ratio)
+    valid_end_idx = int(n * (train_ratio + valid_ratio))
+
+    train_weeks = set(unique_weeks[:train_end_idx])
+    valid_weeks = set(unique_weeks[train_end_idx:valid_end_idx])
+    test_weeks = set(unique_weeks[valid_end_idx:])
+
+    def _assign(row):
+        ws = row["week_start"]
+        if ws in train_weeks:
+            return "train"
+        elif ws in valid_weeks:
+            return "valid"
+        else:
+            return "test"
+
+    df["split"] = df.apply(_assign, axis=1)
+    return df
+
+
+def _build_and_run_models_forward(
+    ref_week_start: date,
+    tier1_df: pd.DataFrame,
     tier2_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Run the LG × horizon models and return a unified forecast DataFrame.
+    Run models in FORWARD mode: train on all data, predict only for ref_week_start.
 
-    This function:
-    - Trains LightGBM models for each (Liquidity Group × Horizon) combination
-    - Uses horizon-specific LP features (W1..W4 for H1..H4; none for H5..H8)
-    - Generates predictions for Tier-1 entities
-    - Adds Tier-2 LP pass-through forecasts
+    Forward mode outputs ONLY forecasts for the next 8 weeks after ref_week_start:
+    - week_start == ref_week_start (a single Monday)
+    - horizon ∈ {1..8}
+    - target_week_start = ref_week_start + 7 * horizon days (ALWAYS a Monday)
 
     Args:
-        as_of_date: The as-of date for the forecast.
-        model_ready_df: Prepared DataFrame for Tier-1 ML forecasting.
+        ref_week_start: The reference Monday (latest Monday in data).
+        tier1_df: Prepared DataFrame for Tier-1 ML forecasting.
         tier2_df: DataFrame with Tier-2 entities for LP pass-through.
 
     Returns:
-        Unified forecast DataFrame.
+        Unified forward forecast DataFrame.
     """
     from hubbleAI.features import get_base_feature_cols, get_feature_cols_for_horizon
     from hubbleAI.features.builder import get_trp_extra_features
     from hubbleAI.models.lightgbm_model import (
         train_lgbm_model,
         predict_lgbm,
+        assign_split,
     )
 
     all_forecasts = []
 
+    # Assign split for training (use all data for training in forward mode)
+    tier1_df = assign_split(tier1_df)
+
     # Get base feature columns (without LP)
-    base_feature_cols = get_base_feature_cols(model_ready_df)
+    base_feature_cols = get_base_feature_cols(tier1_df)
 
     # Get TRP-specific extra features
-    trp_extra_features = get_trp_extra_features(model_ready_df)
+    trp_extra_features = get_trp_extra_features(tier1_df)
+
+    # Convert ref_week_start to timestamp for comparison
+    ref_week_ts = pd.Timestamp(ref_week_start)
 
     # Train and predict for each (LG × Horizon) combination
     for lg in LIQUIDITY_GROUPS:
         # Filter to liquidity group
-        df_lg = model_ready_df[model_ready_df["liquidity_group"] == lg].copy()
+        df_lg = tier1_df[tier1_df["liquidity_group"] == lg].copy()
 
         if df_lg.empty:
             logger.warning(f"No data for liquidity group {lg}, skipping")
@@ -222,7 +290,7 @@ def _build_and_run_models(
         extra_features = trp_extra_features if lg == "TRP" else []
 
         for horizon in HORIZONS:
-            logger.info(f"Training model for {lg} - Horizon {horizon}")
+            logger.info(f"[Forward] Training model for {lg} - Horizon {horizon}")
 
             # Get feature columns for this horizon (with horizon-specific LP)
             feature_cols = get_feature_cols_for_horizon(
@@ -239,19 +307,19 @@ def _build_and_run_models(
 
             target_col = f"y_h{horizon}"
 
-            # Drop rows with missing target
-            df_horizon = df_lg.dropna(subset=[target_col]).copy()
+            # For training: use rows with non-null targets
+            df_train = df_lg.dropna(subset=[target_col]).copy()
 
-            if df_horizon.empty:
+            if df_train.empty:
                 logger.warning(
                     f"No valid targets for {lg} H{horizon}, skipping"
                 )
                 continue
 
             try:
-                # Train model
+                # Train model on all available data with targets
                 model, val_metrics, best_iter = train_lgbm_model(
-                    df_horizon, feature_cols, target_col
+                    df_train, feature_cols, target_col
                 )
 
                 logger.info(
@@ -259,20 +327,30 @@ def _build_and_run_models(
                     f"best_iter={best_iter}"
                 )
 
-                # Generate predictions for all splits
-                predictions = predict_lgbm(model, df_horizon, feature_cols)
+                # For forward mode: predict ONLY for ref_week_start
+                df_ref = df_lg[df_lg["week_start"] == ref_week_ts].copy()
+
+                if df_ref.empty:
+                    logger.warning(
+                        f"No rows for ref_week_start {ref_week_start} in {lg}, skipping H{horizon}"
+                    )
+                    continue
+
+                predictions = predict_lgbm(model, df_ref, feature_cols)
 
                 # Build output DataFrame
-                output = df_horizon[
+                output = df_ref[
                     ["entity", "liquidity_group", "week_start"]
                 ].copy()
                 output["horizon"] = horizon
                 output["target_week_start"] = output["week_start"] + pd.Timedelta(
-                    weeks=horizon
+                    days=7 * horizon
                 )
-                output["y_pred_point"] = predictions
 
-                # TODO: implement proper quantile models for p10/p50/p90 in a later task
+                # Forward mode: actual_value is NaN (future not yet observed)
+                output["actual_value"] = np.nan
+
+                output["y_pred_point"] = predictions
                 output["y_pred_p10"] = np.nan
                 output["y_pred_p50"] = np.nan
                 output["y_pred_p90"] = np.nan
@@ -286,8 +364,8 @@ def _build_and_run_models(
                 logger.error(f"Error training {lg} H{horizon}: {e}")
                 continue
 
-    # Add Tier-2 LP pass-through forecasts
-    tier2_forecasts = _build_tier2_passthrough(as_of_date, tier2_df)
+    # Add Tier-2 LP pass-through forecasts (only for ref_week_start)
+    tier2_forecasts = _build_tier2_passthrough_forward(ref_week_start, tier2_df)
     if not tier2_forecasts.empty:
         all_forecasts.append(tier2_forecasts)
 
@@ -295,61 +373,189 @@ def _build_and_run_models(
     if all_forecasts:
         forecasts_df = pd.concat(all_forecasts, ignore_index=True)
     else:
-        # Return empty DataFrame with correct schema
-        forecasts_df = pd.DataFrame(
-            columns=[
-                "entity",
-                "liquidity_group",
-                "week_start",
-                "target_week_start",
-                "horizon",
-                "y_pred_point",
-                "y_pred_p10",
-                "y_pred_p50",
-                "y_pred_p90",
-                "model_type",
-                "is_pass_through",
-            ]
-        )
+        forecasts_df = pd.DataFrame(columns=FORECAST_OUTPUT_COLS)
 
-    # Clean up output columns
-    output_cols = [
-        "entity",
-        "liquidity_group",
-        "week_start",
-        "target_week_start",
-        "horizon",
-        "y_pred_point",
-        "y_pred_p10",
-        "y_pred_p50",
-        "y_pred_p90",
-        "model_type",
-        "is_pass_through",
-    ]
-    forecasts_df = forecasts_df[output_cols]
+    # Ensure correct output columns
+    forecasts_df = forecasts_df[FORECAST_OUTPUT_COLS]
 
     return forecasts_df
 
 
-def _build_tier2_passthrough(
-    as_of_date: date,
+def _build_and_run_models_backtest(
+    ref_week_start: date,
+    tier1_df: pd.DataFrame,
     tier2_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Build LP pass-through forecasts for Tier-2 entities.
+    Run models in BACKTEST mode: 85/10/5 split, predict only for test (last 5%) weeks.
+
+    Backtest mode:
+    - First 85% of weeks → training
+    - Next 10% of weeks → validation
+    - Last 5% of weeks → BACKTEST (test) - predictions generated here
+
+    Args:
+        ref_week_start: The reference Monday (latest Monday in validation set).
+        tier1_df: Prepared DataFrame for Tier-1 ML forecasting.
+        tier2_df: DataFrame with Tier-2 entities for LP pass-through.
+
+    Returns:
+        Backtest predictions DataFrame for the last 5% weeks.
+    """
+    from hubbleAI.features import get_base_feature_cols, get_feature_cols_for_horizon
+    from hubbleAI.features.builder import get_trp_extra_features
+    from hubbleAI.models.lightgbm_model import (
+        train_lgbm_model,
+        predict_lgbm,
+    )
+
+    all_forecasts = []
+
+    # Assign 85/10/5 split
+    tier1_df = _assign_backtest_split(tier1_df, train_ratio=0.85, valid_ratio=0.10)
+
+    # Get base feature columns (without LP)
+    base_feature_cols = get_base_feature_cols(tier1_df)
+
+    # Get TRP-specific extra features
+    trp_extra_features = get_trp_extra_features(tier1_df)
+
+    # Train and predict for each (LG × Horizon) combination
+    for lg in LIQUIDITY_GROUPS:
+        # Filter to liquidity group
+        df_lg = tier1_df[tier1_df["liquidity_group"] == lg].copy()
+
+        if df_lg.empty:
+            logger.warning(f"No data for liquidity group {lg}, skipping")
+            continue
+
+        # Determine extra features for this LG
+        extra_features = trp_extra_features if lg == "TRP" else []
+
+        for horizon in HORIZONS:
+            logger.info(f"[Backtest] Training model for {lg} - Horizon {horizon}")
+
+            # Get feature columns for this horizon (with horizon-specific LP)
+            feature_cols = get_feature_cols_for_horizon(
+                horizon, base_feature_cols, all_cols=df_lg.columns.tolist()
+            )
+
+            # Add extra features if available
+            if extra_features:
+                feature_cols = feature_cols + [
+                    f
+                    for f in extra_features
+                    if f not in feature_cols and f in df_lg.columns
+                ]
+
+            target_col = f"y_h{horizon}"
+
+            # For training: use rows with non-null targets in train/valid splits
+            df_trainval = df_lg[
+                (df_lg["split"].isin(["train", "valid"])) &
+                (df_lg[target_col].notna())
+            ].copy()
+
+            if df_trainval.empty:
+                logger.warning(
+                    f"No valid targets for {lg} H{horizon}, skipping"
+                )
+                continue
+
+            try:
+                # Train model on train+valid data
+                model, val_metrics, best_iter = train_lgbm_model(
+                    df_trainval, feature_cols, target_col
+                )
+
+                logger.info(
+                    f"{lg} H{horizon}: val_wape={val_metrics['wape']:.4f}, "
+                    f"best_iter={best_iter}"
+                )
+
+                # For backtest mode: predict ONLY for test split (last 5%)
+                df_test = df_lg[df_lg["split"] == "test"].copy()
+
+                if df_test.empty:
+                    logger.warning(
+                        f"No test rows for {lg} H{horizon}, skipping"
+                    )
+                    continue
+
+                predictions = predict_lgbm(model, df_test, feature_cols)
+
+                # Build output DataFrame
+                output = df_test[
+                    ["entity", "liquidity_group", "week_start"]
+                ].copy()
+                output["horizon"] = horizon
+                output["target_week_start"] = output["week_start"] + pd.Timedelta(
+                    days=7 * horizon
+                )
+
+                # Backtest mode: include actual_value for evaluation
+                output["actual_value"] = df_test[target_col].values
+
+                output["y_pred_point"] = predictions
+                output["y_pred_p10"] = np.nan
+                output["y_pred_p50"] = np.nan
+                output["y_pred_p90"] = np.nan
+
+                output["model_type"] = "lightgbm"
+                output["is_pass_through"] = False
+
+                all_forecasts.append(output)
+
+            except Exception as e:
+                logger.error(f"Error training {lg} H{horizon}: {e}")
+                continue
+
+    # Add Tier-2 LP pass-through forecasts for test weeks
+    tier2_forecasts = _build_tier2_passthrough_backtest(tier2_df)
+    if not tier2_forecasts.empty:
+        all_forecasts.append(tier2_forecasts)
+
+    # Combine all forecasts
+    if all_forecasts:
+        forecasts_df = pd.concat(all_forecasts, ignore_index=True)
+    else:
+        forecasts_df = pd.DataFrame(columns=FORECAST_OUTPUT_COLS)
+
+    # Ensure correct output columns
+    forecasts_df = forecasts_df[FORECAST_OUTPUT_COLS]
+
+    # TODO: Add metric computation here (WAPE/MAE/direction accuracy, LP vs model comparison)
+    # This is where future metric computation will be integrated.
+
+    return forecasts_df
+
+
+def _build_tier2_passthrough_forward(
+    ref_week_start: date,
+    tier2_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build LP pass-through forecasts for Tier-2 entities in FORWARD mode.
 
     For Tier-2 entities:
-    - Horizons 1-4: Use LP forecast values
+    - Horizons 1-4: Use LP forecast values (only for ref_week_start)
     - Horizons 5-8: No forecast (LP doesn't extend that far)
 
     Args:
-        as_of_date: The as-of date for the forecast.
+        ref_week_start: The reference Monday.
         tier2_df: DataFrame with Tier-2 entity data.
 
     Returns:
-        DataFrame with Tier-2 pass-through forecasts.
+        DataFrame with Tier-2 pass-through forecasts for ref_week_start only.
     """
     if tier2_df.empty:
+        return pd.DataFrame()
+
+    # Filter to ref_week_start only
+    ref_week_ts = pd.Timestamp(ref_week_start)
+    tier2_ref = tier2_df[tier2_df["week_start"] == ref_week_ts].copy()
+
+    if tier2_ref.empty:
         return pd.DataFrame()
 
     tier2_forecasts = []
@@ -357,21 +563,92 @@ def _build_tier2_passthrough(
     # Only horizons 1-4 have LP forecasts
     for horizon in [1, 2, 3, 4]:
         lp_col = LP_FORECAST_COLS.get(horizon)
-        if lp_col is None or lp_col not in tier2_df.columns:
+        if lp_col is None or lp_col not in tier2_ref.columns:
             continue
 
         # Get rows with valid LP for this horizon
-        df_h = tier2_df[tier2_df[lp_col].notna()].copy()
+        df_h = tier2_ref[tier2_ref[lp_col].notna()].copy()
 
         if df_h.empty:
             continue
 
         output = df_h[["entity", "liquidity_group", "week_start"]].copy()
         output["horizon"] = horizon
-        output["target_week_start"] = output["week_start"] + pd.Timedelta(weeks=horizon)
-        output["y_pred_point"] = df_h[lp_col].values
+        output["target_week_start"] = output["week_start"] + pd.Timedelta(days=7 * horizon)
 
-        # TODO: implement proper quantile models for p10/p50/p90 in a later task
+        # Forward mode: actual_value is NaN
+        output["actual_value"] = np.nan
+
+        output["y_pred_point"] = df_h[lp_col].values
+        output["y_pred_p10"] = np.nan
+        output["y_pred_p50"] = np.nan
+        output["y_pred_p90"] = np.nan
+
+        output["model_type"] = "lp_passthrough"
+        output["is_pass_through"] = True
+
+        tier2_forecasts.append(output)
+
+    if tier2_forecasts:
+        return pd.concat(tier2_forecasts, ignore_index=True)
+    return pd.DataFrame()
+
+
+def _build_tier2_passthrough_backtest(
+    tier2_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build LP pass-through forecasts for Tier-2 entities in BACKTEST mode.
+
+    For Tier-2 entities:
+    - Horizons 1-4: Use LP forecast values (only for test split weeks)
+    - Horizons 5-8: No forecast (LP doesn't extend that far)
+
+    Args:
+        tier2_df: DataFrame with Tier-2 entity data.
+
+    Returns:
+        DataFrame with Tier-2 pass-through forecasts for test weeks.
+    """
+    if tier2_df.empty:
+        return pd.DataFrame()
+
+    # Apply 85/10/5 split to tier2_df
+    tier2_df = _assign_backtest_split(tier2_df, train_ratio=0.85, valid_ratio=0.10)
+
+    # Filter to test split only
+    tier2_test = tier2_df[tier2_df["split"] == "test"].copy()
+
+    if tier2_test.empty:
+        return pd.DataFrame()
+
+    tier2_forecasts = []
+
+    # Only horizons 1-4 have LP forecasts
+    for horizon in [1, 2, 3, 4]:
+        lp_col = LP_FORECAST_COLS.get(horizon)
+        if lp_col is None or lp_col not in tier2_test.columns:
+            continue
+
+        target_col = f"y_h{horizon}"
+
+        # Get rows with valid LP for this horizon
+        df_h = tier2_test[tier2_test[lp_col].notna()].copy()
+
+        if df_h.empty:
+            continue
+
+        output = df_h[["entity", "liquidity_group", "week_start"]].copy()
+        output["horizon"] = horizon
+        output["target_week_start"] = output["week_start"] + pd.Timedelta(days=7 * horizon)
+
+        # Backtest mode: include actual_value for evaluation (if available)
+        if target_col in df_h.columns:
+            output["actual_value"] = df_h[target_col].values
+        else:
+            output["actual_value"] = np.nan
+
+        output["y_pred_point"] = df_h[lp_col].values
         output["y_pred_p10"] = np.nan
         output["y_pred_p50"] = np.nan
         output["y_pred_p90"] = np.nan
@@ -395,6 +672,7 @@ def _save_run_status(status: ForecastRunStatus) -> Path:
             {
                 **asdict(status),
                 "as_of_date": status.as_of_date.isoformat(),
+                "ref_week_start": status.ref_week_start.isoformat(),
                 "created_at": status.created_at.isoformat(),
             },
             f,
@@ -417,47 +695,57 @@ def _generate_run_id(as_of_date: date, trigger_source: str) -> str:
 
 
 def run_forecast(
-    as_of_date: Optional[date] = None,
+    trigger_source: Literal["scheduler", "manual", "notebook"] = "scheduler",
+    mode: ForecastMode = "forward",
+    as_of_week: Optional[date] = None,
     *,
-    trigger_source: Literal["scheduler", "manual"] = "scheduler",
     force_run: bool = False,
-    compute_backtest_metrics: bool = False,
 ) -> ForecastRunStatus:
     """
-    Run the end-to-end forecast pipeline for a given as_of_date.
+    Run the end-to-end forecast pipeline.
 
-    - If as_of_date is None, use a default business rule (e.g. last closed week).
-    - Check data availability (actuals, LP, FX) using file presence for now.
-    - If data is missing and force_run is False:
-        - Do NOT run forecasts.
-        - Return a ForecastRunStatus with status="data_missing" and the missing inputs.
-    - If data is sufficient (or force_run is True):
-        - Load and prepare input data.
-        - Build features and run models to produce point predictions.
-        - Merge Tier-2 LP pass-through outputs.
-        - Store forecast outputs under data/processed/forecasts/{as_of_date}/.
-        - Optionally compute backtest metrics (future).
-        - Return a ForecastRunStatus with status="success".
+    This function supports two modes:
+    - "forward": Normal operational forecast. Outputs ONLY forecasts for the next
+      8 weeks after ref_week_start (the latest Monday in the dataset).
+    - "backtest": Evaluation mode. Uses 85/10/5 chronological split and outputs
+      predictions only for the last 5% (test split) weeks.
+
+    IMPORTANT: All weeks are Monday-based:
+    - week_start is always a Monday
+    - target_week_start is always a Monday (ref_week_start + 7*horizon days)
 
     Args:
-        as_of_date: The as-of date for the forecast run. Defaults to latest valid date.
-        trigger_source: Whether triggered by 'scheduler' or 'manual'.
+        trigger_source: Whether triggered by 'scheduler', 'manual', or 'notebook'.
+        mode: "forward" for operational forecasts, "backtest" for evaluation.
+        as_of_week: Optional Monday date to use as reference. If None, uses the
+                    latest Monday found in the dataset.
         force_run: If True, run even if some data is missing.
-        compute_backtest_metrics: If True, compute and store backtest metrics.
 
     Returns:
-        ForecastRunStatus with run details.
-    """
-    if as_of_date is None:
-        as_of_date = get_default_as_of_date()
+        ForecastRunStatus with run details including ref_week_start and mode.
 
-    run_id = _generate_run_id(as_of_date, trigger_source)
+    Forward mode output:
+        data/processed/forecasts/{ref_week_start}/forecasts.parquet
+        - Only 8 horizons × (#entities × #LG)
+        - week_start == ref_week_start (Monday)
+        - target_week_start == ref_week_start + (7*H) days (Monday)
+        - actual_value = NaN (future not yet observed)
+
+    Backtest mode output:
+        data/processed/backtests/{ref_week_start}/backtest_predictions.parquet
+        - Predictions for ALL historical Monday weeks within the last 5% test split
+        - actual_value = observed amount for that target_week_start
+    """
+    # Use a placeholder as_of_date for initial checks
+    as_of_date = as_of_week if as_of_week else get_default_as_of_date()
+
+    run_id = _generate_run_id(as_of_date, f"{trigger_source}_{mode}")
     created_at = datetime.utcnow()
 
     logger.info(
-        "Starting forecast run %s for as_of_date=%s (trigger=%s)",
+        "Starting forecast run %s mode=%s (trigger=%s)",
         run_id,
-        as_of_date,
+        mode,
         trigger_source,
     )
 
@@ -465,9 +753,12 @@ def run_forecast(
     if not is_ready and not force_run:
         message = "Forecast not run: missing required inputs: " + ", ".join(missing)
         logger.warning(message)
+        # Return placeholder ref_week_start (will be updated after data load)
         status = ForecastRunStatus(
             run_id=run_id,
             as_of_date=as_of_date,
+            ref_week_start=as_of_date,  # Placeholder
+            mode=mode,
             trigger_source=trigger_source,
             status="data_missing",
             created_at=created_at,
@@ -482,30 +773,81 @@ def run_forecast(
     try:
         # Load and prepare data
         logger.info("Loading and preparing data...")
-        model_ready_df, tier2_df = _load_and_prepare_data(as_of_date)
+        tier1_df, tier2_df, ref_week_start = _load_and_prepare_data(as_of_date)
 
-        # Build and run models
-        logger.info("Training models and generating forecasts...")
-        forecasts_df = _build_and_run_models(as_of_date, model_ready_df, tier2_df)
+        # Override ref_week_start if as_of_week was explicitly provided
+        if as_of_week is not None:
+            # Validate that as_of_week is a Monday
+            if as_of_week.weekday() != 0:
+                raise ValueError(
+                    f"as_of_week must be a Monday, got {as_of_week} "
+                    f"(weekday={as_of_week.weekday()})"
+                )
+            ref_week_start = as_of_week
 
-        # Save forecasts
-        as_of_dir = FORECASTS_DIR / as_of_date.isoformat()
-        as_of_dir.mkdir(parents=True, exist_ok=True)
-        forecasts_path = as_of_dir / "forecasts.parquet"
-        forecasts_df.to_parquet(forecasts_path, index=False)
+        logger.info(f"ref_week_start (Monday): {ref_week_start}")
 
-        output_paths = {"forecasts": str(forecasts_path)}
+        # Build and run models based on mode
+        if mode == "forward":
+            logger.info("Running in FORWARD mode...")
+            forecasts_df = _build_and_run_models_forward(
+                ref_week_start, tier1_df, tier2_df
+            )
+
+            # Save forecasts to forward path
+            output_dir = FORECASTS_DIR / ref_week_start.isoformat()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / "forecasts.parquet"
+            forecasts_df.to_parquet(output_path, index=False)
+
+            output_paths = {"forecasts": str(output_path)}
+            message = (
+                f"Forward forecast completed. Generated {len(forecasts_df)} forecasts "
+                f"for ref_week_start={ref_week_start}."
+            )
+
+        elif mode == "backtest":
+            logger.info("Running in BACKTEST mode (85/10/5 split)...")
+
+            # For backtest, ref_week_start is the last Monday in validation set
+            # (i.e., the cutoff before the 5% test weeks)
+            unique_weeks = sorted(tier1_df["week_start"].drop_duplicates().tolist())
+            n = len(unique_weeks)
+            valid_end_idx = int(n * 0.95)  # 85% train + 10% valid = 95%
+            if valid_end_idx > 0:
+                backtest_ref_week = pd.Timestamp(unique_weeks[valid_end_idx - 1]).date()
+            else:
+                backtest_ref_week = ref_week_start
+
+            forecasts_df = _build_and_run_models_backtest(
+                backtest_ref_week, tier1_df, tier2_df
+            )
+
+            # Save backtest predictions
+            output_dir = BACKTESTS_DIR / backtest_ref_week.isoformat()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / "backtest_predictions.parquet"
+            forecasts_df.to_parquet(output_path, index=False)
+
+            output_paths = {"backtest": str(output_path)}
+            ref_week_start = backtest_ref_week  # Update for status
+            message = (
+                f"Backtest completed. Generated {len(forecasts_df)} predictions "
+                f"for test weeks (last 5%). ref_week_start={ref_week_start}."
+            )
+
+        else:
+            raise ValueError(f"Unknown mode: {mode}. Must be 'forward' or 'backtest'.")
 
         metrics_paths: Dict[str, str] = {}
-        if compute_backtest_metrics:
-            # TODO: compute and save metrics under METRICS_DIR
-            pass
+        # TODO: Add metric computation for backtest mode (WAPE/MAE/direction accuracy)
 
-        message = f"Forecast run completed successfully. Generated {len(forecasts_df)} forecasts."
         logger.info(message)
         status = ForecastRunStatus(
             run_id=run_id,
             as_of_date=as_of_date,
+            ref_week_start=ref_week_start,
+            mode=mode,
             trigger_source=trigger_source,
             status="success",
             created_at=created_at,
@@ -522,6 +864,8 @@ def run_forecast(
         status = ForecastRunStatus(
             run_id=run_id,
             as_of_date=as_of_date,
+            ref_week_start=as_of_date,  # Placeholder on error
+            mode=mode,
             trigger_source=trigger_source,
             status="error",
             created_at=created_at,
