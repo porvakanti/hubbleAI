@@ -126,6 +126,7 @@ The output schema for forecasts should include at least:
 - `week_start`
 - `target_week_start`
 - `horizon`
+- `actual_value` (Backtest mode: actual observed weekly amount for the target_week_start; Forward mode: NaN placeholder (future actual unknown))
 - `y_pred_point`
 - `y_pred_p10`
 - `y_pred_p50`

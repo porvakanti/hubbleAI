@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: hubbleAI
+Version: 0.1.0
+Summary: Treasury cashflow forecasting pipeline and app
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
