@@ -134,7 +134,51 @@ The output schema for forecasts should include at least:
 - `model_name` / `model_type`
 - `is_pass_through` (for Tier‑2)
 
-### 2.6 Data Sources & I/O Strategy (Current vs Future)
+### 2.6 Weekly Aggregation & Forecast Modes
+
+#### Monday-Based Weeks
+
+All weekly aggregation in hubbleAI uses **Monday-based weeks**:
+- `week_start` is ALWAYS the Monday of that week
+- `target_week_start` is ALWAYS the Monday of the target week (`week_start + 7 * horizon` days)
+
+This ensures consistency across actuals, LP data, and all forecast outputs.
+
+#### Forecast Modes
+
+The `run_forecast()` function supports two modes:
+
+**Forward Mode** (`mode="forward"`):
+- Normal operational forecast for production use
+- Uses the latest Monday in the data as `ref_week_start`
+- Outputs ONLY forecasts for the next 8 weeks after `ref_week_start`
+- Output schema: 8 horizons × (#entities × #LG)
+- `actual_value` = NaN (future not yet observed)
+- Saved to: `data/processed/forecasts/{ref_week_start}/forecasts.parquet`
+
+**Backtest Mode** (`mode="backtest"`):
+- Evaluation mode for model performance assessment
+- Uses 85/10/5 chronological split:
+  - First 85% of weeks → training
+  - Next 10% of weeks → validation
+  - Last 5% of weeks → test (predictions generated here)
+- Outputs predictions ONLY for the last 5% (test split) weeks
+- `actual_value` = observed amount for that target_week_start
+- Saved to: `data/processed/backtests/{ref_week_start}/backtest_predictions.parquet`
+- TODO: Future integration for WAPE/MAE/direction accuracy metrics
+
+Usage examples:
+```python
+from hubbleAI.pipeline import run_forecast
+
+# Forward mode (operational)
+status = run_forecast(mode="forward", trigger_source="manual")
+
+# Backtest mode (evaluation)
+status = run_forecast(mode="backtest", trigger_source="notebook")
+```
+
+### 2.7 Data Sources & I/O Strategy (Current vs Future)
 
   Current phase (what you should implement **now**):
 
@@ -143,7 +187,8 @@ The output schema for forecasts should include at least:
       - Liquidity Plan (e.g. `liquidity_plan.csv`)
       - FX rates (e.g. `fx_rates.csv`)
     - All outputs are **local files** under `data/processed`:
-      - Forecasts under `data/processed/forecasts/{as_of_date}/`
+      - Forecasts under `data/processed/forecasts/{ref_week_start}/`
+      - Backtests under `data/processed/backtests/{ref_week_start}/`
       - Run status under `data/processed/run_status/`
       - Metrics under `data/processed/metrics/`
 

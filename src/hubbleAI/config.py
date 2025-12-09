@@ -20,6 +20,7 @@ DATA_RAW_DIR = REPO_ROOT / "data" / "raw"
 DATA_PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 RUN_STATUS_DIR = DATA_PROCESSED_DIR / "run_status"
 FORECASTS_DIR = DATA_PROCESSED_DIR / "forecasts"
+BACKTESTS_DIR = DATA_PROCESSED_DIR / "backtests"
 METRICS_DIR = DATA_PROCESSED_DIR / "metrics"
 MODELS_DIR = DATA_PROCESSED_DIR / "models"
 
@@ -177,6 +178,7 @@ FORECAST_OUTPUT_COLS: List[str] = [
     "week_start",
     "target_week_start",
     "horizon",
+    "actual_value",
     "y_pred_point",
     "y_pred_p10",
     "y_pred_p50",
