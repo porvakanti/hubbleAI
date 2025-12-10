@@ -245,7 +245,53 @@ metrics_net_entity = pd.read_parquet(status.metrics_paths["metrics_net_entity"])
 # Access clean metrics (Tier-1 only - true ML performance)
 metrics_lg_clean = pd.read_parquet(status.metrics_paths["metrics_by_lg_clean"])
 metrics_net_clean = pd.read_parquet(status.metrics_paths["metrics_net_clean"])
+
+# Access diagnostics
+horizon_profiles = pd.read_parquet(status.metrics_paths["metrics_horizon_profiles"])
+residuals = pd.read_parquet(status.metrics_paths["residual_diagnostics"])
+stability = pd.read_parquet(status.metrics_paths["entity_stability"])
+wins = pd.read_parquet(status.metrics_paths["model_vs_lp_wins"])
 ```
+
+#### 3. Error Diagnostics (Backtest Only)
+Saved to: `data/processed/metrics/backtests/{ref_week_start}/diagnostics/`
+
+Diagnostics provide deeper analysis of model performance. They always use the **full dataset** (includes Tier-2 passthroughs).
+
+| File | Grouping | Description |
+|------|----------|-------------|
+| `metrics_horizon_profiles.parquet` | horizon | ML/LP WAPE, MAE, MSE, RMSE per horizon |
+| `residual_diagnostics.parquet` | liquidity_group, horizon | Residual distribution (mean, median, std, percentiles) |
+| `entity_stability.parquet` | entity, liquidity_group, horizon | Error volatility over time per entity |
+| `model_vs_lp_wins.parquet` | liquidity_group, horizon | Win-loss counts (ML vs LP) |
+
+**Horizon Profiles Schema:**
+```
+horizon, ml_wape, ml_mae, ml_mse, ml_rmse,
+lp_wape, lp_mae, lp_mse, lp_rmse, n_obs
+```
+
+**Residual Diagnostics Schema:**
+```
+liquidity_group, horizon, count, mean_residual, median_residual,
+std_residual, p10_residual, p25_residual, p75_residual, p90_residual
+```
+- Residual = actual_value − y_pred_point
+
+**Entity Stability Schema:**
+```
+entity, liquidity_group, horizon, mean_abs_error, median_abs_error,
+std_abs_error, mean_4w_volatility, max_4w_volatility, n_weeks
+```
+- `mean_4w_volatility`: Rolling 4-week std of absolute errors (identifies unstable entities)
+
+**Model vs LP Wins Schema:**
+```
+liquidity_group, horizon, ml_better_count, lp_better_count,
+tie_count, ml_win_rate, lp_win_rate, total
+```
+- Win determined by comparing |ml_error| vs |lp_error| per observation
+- Horizons 5-8 have no LP comparison (LP baseline is NaN)
 
 ### 2.7 Data Sources & I/O Strategy (Current vs Future)
 

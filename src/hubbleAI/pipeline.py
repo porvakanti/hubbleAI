@@ -656,7 +656,91 @@ def _compute_and_save_backtest_metrics(
     except Exception as e:
         logger.error(f"Error computing Net-Entity-level metrics: {e}")
 
+    # 5. Compute and save diagnostics (always uses full dataset)
+    diagnostic_paths = _compute_and_save_diagnostics(forecasts_df, ref_week_start)
+    metrics_paths.update(diagnostic_paths)
+
     return metrics_paths
+
+
+def _compute_and_save_diagnostics(
+    forecasts_df: pd.DataFrame,
+    ref_week_start: date,
+) -> Dict[str, str]:
+    """
+    Compute and save backtest diagnostics.
+
+    Diagnostics provide deeper analysis of model performance:
+    - Horizon profiles: WAPE, MAE, MSE, RMSE per horizon
+    - Residual diagnostics: Distribution of prediction errors per LG × horizon
+    - Entity stability: Error volatility across time per entity × horizon
+    - Model vs LP wins: Win-loss analysis per LG × horizon
+
+    Note: Diagnostics always use the FULL dataset (includes Tier-2 passthroughs).
+
+    Args:
+        forecasts_df: Backtest predictions DataFrame with lp_baseline_point.
+        ref_week_start: Reference week for output directory naming.
+
+    Returns:
+        Dict mapping diagnostic file names to their paths.
+    """
+    from hubbleAI.evaluation.metrics import (
+        compute_horizon_profiles,
+        compute_residual_diagnostics,
+        compute_entity_stability,
+        compute_model_vs_lp_wins,
+    )
+
+    diagnostic_paths: Dict[str, str] = {}
+
+    # Create diagnostics subdirectory
+    diagnostics_dir = BACKTEST_METRICS_DIR / ref_week_start.isoformat() / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Computing backtest diagnostics...")
+
+    # 1. Horizon profiles
+    try:
+        horizon_profiles = compute_horizon_profiles(forecasts_df)
+        horizon_path = diagnostics_dir / "metrics_horizon_profiles.parquet"
+        horizon_profiles.to_parquet(horizon_path, index=False)
+        diagnostic_paths["metrics_horizon_profiles"] = str(horizon_path)
+        logger.info(f"Horizon profiles saved: {len(horizon_profiles)} rows")
+    except Exception as e:
+        logger.error(f"Error computing horizon profiles: {e}")
+
+    # 2. Residual diagnostics
+    try:
+        residuals = compute_residual_diagnostics(forecasts_df)
+        residuals_path = diagnostics_dir / "residual_diagnostics.parquet"
+        residuals.to_parquet(residuals_path, index=False)
+        diagnostic_paths["residual_diagnostics"] = str(residuals_path)
+        logger.info(f"Residual diagnostics saved: {len(residuals)} rows")
+    except Exception as e:
+        logger.error(f"Error computing residual diagnostics: {e}")
+
+    # 3. Entity stability
+    try:
+        stability = compute_entity_stability(forecasts_df)
+        stability_path = diagnostics_dir / "entity_stability.parquet"
+        stability.to_parquet(stability_path, index=False)
+        diagnostic_paths["entity_stability"] = str(stability_path)
+        logger.info(f"Entity stability saved: {len(stability)} rows")
+    except Exception as e:
+        logger.error(f"Error computing entity stability: {e}")
+
+    # 4. Model vs LP wins
+    try:
+        wins = compute_model_vs_lp_wins(forecasts_df)
+        wins_path = diagnostics_dir / "model_vs_lp_wins.parquet"
+        wins.to_parquet(wins_path, index=False)
+        diagnostic_paths["model_vs_lp_wins"] = str(wins_path)
+        logger.info(f"Model vs LP wins saved: {len(wins)} rows")
+    except Exception as e:
+        logger.error(f"Error computing model vs LP wins: {e}")
+
+    return diagnostic_paths
 
 
 def _build_tier2_passthrough_forward(
