@@ -31,6 +31,7 @@ from hubbleAI.config import (
     FORECASTS_DIR,
     BACKTESTS_DIR,
     METRICS_DIR,
+    BACKTEST_METRICS_DIR,
     HORIZONS,
     LIQUIDITY_GROUPS,
     TIER2_LIST,
@@ -41,6 +42,7 @@ from hubbleAI.config import (
     FX_FILENAME,
     MIN_HISTORY_WEEKS,
     FORECAST_OUTPUT_COLS,
+    BACKTEST_OUTPUT_COLS,
 )
 
 # Ensure directories exist
@@ -48,6 +50,7 @@ RUN_STATUS_DIR.mkdir(parents=True, exist_ok=True)
 FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
 METRICS_DIR.mkdir(parents=True, exist_ok=True)
+BACKTEST_METRICS_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +388,7 @@ def _build_and_run_models_backtest(
     ref_week_start: date,
     tier1_df: pd.DataFrame,
     tier2_df: pd.DataFrame,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
     Run models in BACKTEST mode: 85/10/5 split, predict only for test (last 5%) weeks.
 
@@ -394,19 +397,33 @@ def _build_and_run_models_backtest(
     - Next 10% of weeks → validation
     - Last 5% of weeks → BACKTEST (test) - predictions generated here
 
+    Also computes and saves metrics at 4 aggregation levels:
+    - LG-level: (week_start, liquidity_group, horizon)
+    - Entity-level: (week_start, entity, liquidity_group, horizon)
+    - Net-level: (week_start, horizon) - TRR+TRP summed
+    - Net-Entity-level: (week_start, entity, horizon) - TRR+TRP summed per entity
+
     Args:
         ref_week_start: The reference Monday (latest Monday in validation set).
         tier1_df: Prepared DataFrame for Tier-1 ML forecasting.
         tier2_df: DataFrame with Tier-2 entities for LP pass-through.
 
     Returns:
-        Backtest predictions DataFrame for the last 5% weeks.
+        Tuple of:
+        - Backtest predictions DataFrame for the last 5% weeks (includes lp_baseline_point)
+        - Dict mapping metric file names to their paths
     """
     from hubbleAI.features import get_base_feature_cols, get_feature_cols_for_horizon
     from hubbleAI.features.builder import get_trp_extra_features
     from hubbleAI.models.lightgbm_model import (
         train_lgbm_model,
         predict_lgbm,
+    )
+    from hubbleAI.evaluation.metrics import (
+        compute_metrics_by_lg,
+        compute_metrics_by_entity,
+        compute_metrics_net,
+        compute_metrics_net_entity,
     )
 
     all_forecasts = []
@@ -497,6 +514,15 @@ def _build_and_run_models_backtest(
                 output["actual_value"] = df_test[target_col].values
 
                 output["y_pred_point"] = predictions
+
+                # Add LP baseline point for comparison
+                # h=1-4: use W{h}_Forecast, h>=5: NaN
+                lp_col = LP_FORECAST_COLS.get(horizon)
+                if lp_col is not None and lp_col in df_test.columns:
+                    output["lp_baseline_point"] = df_test[lp_col].values
+                else:
+                    output["lp_baseline_point"] = np.nan
+
                 output["y_pred_p10"] = np.nan
                 output["y_pred_p50"] = np.nan
                 output["y_pred_p90"] = np.nan
@@ -519,15 +545,87 @@ def _build_and_run_models_backtest(
     if all_forecasts:
         forecasts_df = pd.concat(all_forecasts, ignore_index=True)
     else:
-        forecasts_df = pd.DataFrame(columns=FORECAST_OUTPUT_COLS)
+        forecasts_df = pd.DataFrame(columns=BACKTEST_OUTPUT_COLS)
 
-    # Ensure correct output columns
-    forecasts_df = forecasts_df[FORECAST_OUTPUT_COLS]
+    # Ensure correct output columns for backtest (includes lp_baseline_point)
+    forecasts_df = forecasts_df[BACKTEST_OUTPUT_COLS]
 
-    # TODO: Add metric computation here (WAPE/MAE/direction accuracy, LP vs model comparison)
-    # This is where future metric computation will be integrated.
+    # Compute and save metrics at 4 aggregation levels
+    metrics_paths = _compute_and_save_backtest_metrics(forecasts_df, ref_week_start)
 
-    return forecasts_df
+    return forecasts_df, metrics_paths
+
+
+def _compute_and_save_backtest_metrics(
+    forecasts_df: pd.DataFrame,
+    ref_week_start: date,
+) -> Dict[str, str]:
+    """
+    Compute and save backtest metrics at 4 aggregation levels.
+
+    Args:
+        forecasts_df: Backtest predictions DataFrame with lp_baseline_point.
+        ref_week_start: Reference week for output directory naming.
+
+    Returns:
+        Dict mapping metric file names to their paths.
+    """
+    from hubbleAI.evaluation.metrics import (
+        compute_metrics_by_lg,
+        compute_metrics_by_entity,
+        compute_metrics_net,
+        compute_metrics_net_entity,
+    )
+
+    metrics_paths: Dict[str, str] = {}
+
+    # Create output directory
+    metrics_dir = BACKTEST_METRICS_DIR / ref_week_start.isoformat()
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Computing backtest metrics at 4 aggregation levels...")
+
+    # 1. LG-level metrics: (week_start, liquidity_group, horizon)
+    try:
+        metrics_lg = compute_metrics_by_lg(forecasts_df)
+        lg_path = metrics_dir / "metrics_by_lg.parquet"
+        metrics_lg.to_parquet(lg_path, index=False)
+        metrics_paths["metrics_by_lg"] = str(lg_path)
+        logger.info(f"LG-level metrics saved: {len(metrics_lg)} rows")
+    except Exception as e:
+        logger.error(f"Error computing LG-level metrics: {e}")
+
+    # 2. Entity-level metrics: (week_start, entity, liquidity_group, horizon)
+    try:
+        metrics_entity = compute_metrics_by_entity(forecasts_df)
+        entity_path = metrics_dir / "metrics_by_entity.parquet"
+        metrics_entity.to_parquet(entity_path, index=False)
+        metrics_paths["metrics_by_entity"] = str(entity_path)
+        logger.info(f"Entity-level metrics saved: {len(metrics_entity)} rows")
+    except Exception as e:
+        logger.error(f"Error computing Entity-level metrics: {e}")
+
+    # 3. Net-level metrics: (week_start, horizon) - TRR+TRP summed
+    try:
+        metrics_net = compute_metrics_net(forecasts_df)
+        net_path = metrics_dir / "metrics_net.parquet"
+        metrics_net.to_parquet(net_path, index=False)
+        metrics_paths["metrics_net"] = str(net_path)
+        logger.info(f"Net-level metrics saved: {len(metrics_net)} rows")
+    except Exception as e:
+        logger.error(f"Error computing Net-level metrics: {e}")
+
+    # 4. Net-Entity-level metrics: (week_start, entity, horizon) - TRR+TRP summed per entity
+    try:
+        metrics_net_entity = compute_metrics_net_entity(forecasts_df)
+        net_entity_path = metrics_dir / "metrics_net_entity.parquet"
+        metrics_net_entity.to_parquet(net_entity_path, index=False)
+        metrics_paths["metrics_net_entity"] = str(net_entity_path)
+        logger.info(f"Net-Entity-level metrics saved: {len(metrics_net_entity)} rows")
+    except Exception as e:
+        logger.error(f"Error computing Net-Entity-level metrics: {e}")
+
+    return metrics_paths
 
 
 def _build_tier2_passthrough_forward(
@@ -604,6 +702,10 @@ def _build_tier2_passthrough_backtest(
     - Horizons 1-4: Use LP forecast values (only for test split weeks)
     - Horizons 5-8: No forecast (LP doesn't extend that far)
 
+    Note: For Tier-2 rows, both y_pred_point and lp_baseline_point are set
+    to the LP forecast value (since ML prediction = LP pass-through).
+    This ensures consistency in metric computation.
+
     Args:
         tier2_df: DataFrame with Tier-2 entity data.
 
@@ -648,7 +750,11 @@ def _build_tier2_passthrough_backtest(
         else:
             output["actual_value"] = np.nan
 
+        # For Tier-2: y_pred_point is LP pass-through
         output["y_pred_point"] = df_h[lp_col].values
+        # Also set lp_baseline_point for consistency in metrics
+        output["lp_baseline_point"] = df_h[lp_col].values
+
         output["y_pred_p10"] = np.nan
         output["y_pred_p50"] = np.nan
         output["y_pred_p90"] = np.nan
@@ -819,7 +925,8 @@ def run_forecast(
             else:
                 backtest_ref_week = ref_week_start
 
-            forecasts_df = _build_and_run_models_backtest(
+            # Build backtest predictions and compute metrics
+            forecasts_df, metrics_paths = _build_and_run_models_backtest(
                 backtest_ref_week, tier1_df, tier2_df
             )
 
@@ -833,14 +940,16 @@ def run_forecast(
             ref_week_start = backtest_ref_week  # Update for status
             message = (
                 f"Backtest completed. Generated {len(forecasts_df)} predictions "
-                f"for test weeks (last 5%). ref_week_start={ref_week_start}."
+                f"for test weeks (last 5%). ref_week_start={ref_week_start}. "
+                f"Metrics saved for {len(metrics_paths)} aggregation levels."
             )
 
         else:
             raise ValueError(f"Unknown mode: {mode}. Must be 'forward' or 'backtest'.")
 
-        metrics_paths: Dict[str, str] = {}
-        # TODO: Add metric computation for backtest mode (WAPE/MAE/direction accuracy)
+        # For forward mode, no metrics are computed (no actuals available)
+        if mode == "forward":
+            metrics_paths = {}
 
         logger.info(message)
         status = ForecastRunStatus(
