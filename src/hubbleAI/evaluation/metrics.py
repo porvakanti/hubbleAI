@@ -731,3 +731,327 @@ def _add_prev_actual(df: pd.DataFrame) -> pd.DataFrame:
         ["entity", "liquidity_group", "horizon"], observed=True
     )["actual_value"].shift(1)
     return df
+
+
+# ---------------------------------------------------------------------------
+# Backtest Diagnostics (Task 2.2)
+# ---------------------------------------------------------------------------
+
+
+def compute_horizon_profiles(
+    df: pd.DataFrame,
+    actual_col: str = "actual_value",
+    ml_pred_col: str = "y_pred_point",
+    lp_pred_col: str = "lp_baseline_point",
+) -> pd.DataFrame:
+    """
+    Compute horizon-wise error profiles: WAPE, MAE, MSE, RMSE per horizon.
+
+    Uses Aggregate-then-Error WAPE (Treasury-aligned):
+    - WAPE = |sum(actual) - sum(pred)| / |sum(actual)|
+
+    For LP metrics, horizons 5-8 will have NaN (no LP baseline).
+
+    Args:
+        df: Backtest predictions DataFrame.
+        actual_col: Column name for actual values.
+        ml_pred_col: Column name for ML predictions.
+        lp_pred_col: Column name for LP baseline predictions.
+
+    Returns:
+        DataFrame with metrics per horizon:
+        horizon, ml_wape, ml_mae, ml_mse, ml_rmse,
+        lp_wape, lp_mae, lp_mse, lp_rmse, n_obs
+    """
+    results = []
+
+    for horizon, group in df.groupby("horizon", observed=True):
+        actual = group[actual_col]
+        ml_pred = group[ml_pred_col]
+        lp_pred = group[lp_pred_col] if lp_pred_col in group.columns else pd.Series([np.nan] * len(group))
+
+        # Valid ML observations
+        ml_mask = actual.notna() & ml_pred.notna()
+        n_ml = ml_mask.sum()
+
+        # Valid LP observations
+        lp_mask = actual.notna() & lp_pred.notna()
+        n_lp = lp_mask.sum()
+
+        row = {"horizon": horizon, "n_obs": n_ml}
+
+        # ML metrics
+        if n_ml > 0:
+            y_true = actual[ml_mask].values
+            y_pred = ml_pred[ml_mask].values
+            row["ml_wape"] = wape_aggregate(y_true, y_pred)
+            row["ml_mae"] = float(np.mean(np.abs(y_true - y_pred)))
+            row["ml_mse"] = float(np.mean((y_true - y_pred) ** 2))
+            row["ml_rmse"] = float(np.sqrt(row["ml_mse"]))
+        else:
+            row["ml_wape"] = np.nan
+            row["ml_mae"] = np.nan
+            row["ml_mse"] = np.nan
+            row["ml_rmse"] = np.nan
+
+        # LP metrics
+        if n_lp > 0:
+            y_true_lp = actual[lp_mask].values
+            y_pred_lp = lp_pred[lp_mask].values
+            row["lp_wape"] = wape_aggregate(y_true_lp, y_pred_lp)
+            row["lp_mae"] = float(np.mean(np.abs(y_true_lp - y_pred_lp)))
+            row["lp_mse"] = float(np.mean((y_true_lp - y_pred_lp) ** 2))
+            row["lp_rmse"] = float(np.sqrt(row["lp_mse"]))
+        else:
+            row["lp_wape"] = np.nan
+            row["lp_mae"] = np.nan
+            row["lp_mse"] = np.nan
+            row["lp_rmse"] = np.nan
+
+        results.append(row)
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["horizon", "ml_wape", "ml_mae", "ml_mse", "ml_rmse",
+                 "lp_wape", "lp_mae", "lp_mse", "lp_rmse", "n_obs"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def compute_residual_diagnostics(
+    df: pd.DataFrame,
+    actual_col: str = "actual_value",
+    ml_pred_col: str = "y_pred_point",
+) -> pd.DataFrame:
+    """
+    Compute residual distribution summaries per LG × horizon.
+
+    Residual = actual_value - y_pred_point
+
+    Args:
+        df: Backtest predictions DataFrame.
+        actual_col: Column name for actual values.
+        ml_pred_col: Column name for ML predictions.
+
+    Returns:
+        DataFrame with residual statistics per (liquidity_group, horizon):
+        liquidity_group, horizon, count, mean_residual, median_residual,
+        std_residual, p10_residual, p25_residual, p75_residual, p90_residual
+    """
+    results = []
+
+    for (lg, horizon), group in df.groupby(["liquidity_group", "horizon"], observed=True):
+        actual = group[actual_col]
+        ml_pred = group[ml_pred_col]
+
+        # Valid observations
+        mask = actual.notna() & ml_pred.notna()
+        n = mask.sum()
+
+        if n == 0:
+            results.append({
+                "liquidity_group": lg,
+                "horizon": horizon,
+                "count": 0,
+                "mean_residual": np.nan,
+                "median_residual": np.nan,
+                "std_residual": np.nan,
+                "p10_residual": np.nan,
+                "p25_residual": np.nan,
+                "p75_residual": np.nan,
+                "p90_residual": np.nan,
+            })
+            continue
+
+        residuals = actual[mask].values - ml_pred[mask].values
+
+        results.append({
+            "liquidity_group": lg,
+            "horizon": horizon,
+            "count": int(n),
+            "mean_residual": float(np.mean(residuals)),
+            "median_residual": float(np.median(residuals)),
+            "std_residual": float(np.std(residuals, ddof=1)) if n > 1 else np.nan,
+            "p10_residual": float(np.percentile(residuals, 10)),
+            "p25_residual": float(np.percentile(residuals, 25)),
+            "p75_residual": float(np.percentile(residuals, 75)),
+            "p90_residual": float(np.percentile(residuals, 90)),
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["liquidity_group", "horizon", "count", "mean_residual",
+                 "median_residual", "std_residual", "p10_residual",
+                 "p25_residual", "p75_residual", "p90_residual"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def compute_entity_stability(
+    df: pd.DataFrame,
+    actual_col: str = "actual_value",
+    ml_pred_col: str = "y_pred_point",
+) -> pd.DataFrame:
+    """
+    Compute entity-level stability across time per entity × horizon.
+
+    For each entity × horizon:
+    - abs_error = |actual_value - y_pred_point|
+    - Rolling 4-week volatility of abs_error (std with window=4)
+
+    Args:
+        df: Backtest predictions DataFrame.
+        actual_col: Column name for actual values.
+        ml_pred_col: Column name for ML predictions.
+
+    Returns:
+        DataFrame with stability metrics per (entity, liquidity_group, horizon):
+        entity, liquidity_group, horizon, mean_abs_error, median_abs_error,
+        std_abs_error, mean_4w_volatility, max_4w_volatility, n_weeks
+    """
+    df = df.copy()
+
+    # Compute absolute error
+    mask = df[actual_col].notna() & df[ml_pred_col].notna()
+    df["abs_error"] = np.nan
+    df.loc[mask, "abs_error"] = np.abs(
+        df.loc[mask, actual_col].values - df.loc[mask, ml_pred_col].values
+    )
+
+    # Sort by entity, LG, horizon, week for rolling calculation
+    df = df.sort_values(["entity", "liquidity_group", "horizon", "week_start"])
+
+    # Compute rolling 4-week volatility (std) per entity × LG × horizon
+    df["error_volatility_4w"] = df.groupby(
+        ["entity", "liquidity_group", "horizon"], observed=True
+    )["abs_error"].transform(lambda x: x.rolling(window=4, min_periods=2).std())
+
+    results = []
+
+    for (entity, lg, horizon), group in df.groupby(
+        ["entity", "liquidity_group", "horizon"], observed=True
+    ):
+        abs_errors = group["abs_error"].dropna()
+        volatilities = group["error_volatility_4w"].dropna()
+
+        n_weeks = len(abs_errors)
+
+        if n_weeks == 0:
+            results.append({
+                "entity": entity,
+                "liquidity_group": lg,
+                "horizon": horizon,
+                "mean_abs_error": np.nan,
+                "median_abs_error": np.nan,
+                "std_abs_error": np.nan,
+                "mean_4w_volatility": np.nan,
+                "max_4w_volatility": np.nan,
+                "n_weeks": 0,
+            })
+            continue
+
+        results.append({
+            "entity": entity,
+            "liquidity_group": lg,
+            "horizon": horizon,
+            "mean_abs_error": float(abs_errors.mean()),
+            "median_abs_error": float(abs_errors.median()),
+            "std_abs_error": float(abs_errors.std(ddof=1)) if n_weeks > 1 else np.nan,
+            "mean_4w_volatility": float(volatilities.mean()) if len(volatilities) > 0 else np.nan,
+            "max_4w_volatility": float(volatilities.max()) if len(volatilities) > 0 else np.nan,
+            "n_weeks": int(n_weeks),
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["entity", "liquidity_group", "horizon", "mean_abs_error",
+                 "median_abs_error", "std_abs_error", "mean_4w_volatility",
+                 "max_4w_volatility", "n_weeks"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def compute_model_vs_lp_wins(
+    df: pd.DataFrame,
+    actual_col: str = "actual_value",
+    ml_pred_col: str = "y_pred_point",
+    lp_pred_col: str = "lp_baseline_point",
+) -> pd.DataFrame:
+    """
+    Compute model vs LP win-loss analysis per LG × horizon.
+
+    For each observation, compare |ml_error| vs |lp_error|:
+    - ML wins if |ml_error| < |lp_error|
+    - LP wins if |lp_error| < |ml_error|
+    - Tie if equal
+
+    Note: Horizons 5-8 have NaN LP baseline, so no comparison possible.
+
+    Args:
+        df: Backtest predictions DataFrame.
+        actual_col: Column name for actual values.
+        ml_pred_col: Column name for ML predictions.
+        lp_pred_col: Column name for LP baseline predictions.
+
+    Returns:
+        DataFrame with win-loss counts per (liquidity_group, horizon):
+        liquidity_group, horizon, ml_better_count, lp_better_count,
+        tie_count, ml_win_rate, lp_win_rate, total
+    """
+    results = []
+
+    for (lg, horizon), group in df.groupby(["liquidity_group", "horizon"], observed=True):
+        actual = group[actual_col]
+        ml_pred = group[ml_pred_col]
+        lp_pred = group[lp_pred_col] if lp_pred_col in group.columns else pd.Series([np.nan] * len(group))
+
+        # Valid observations where both ML and LP are available
+        mask = actual.notna() & ml_pred.notna() & lp_pred.notna()
+        n = mask.sum()
+
+        if n == 0:
+            results.append({
+                "liquidity_group": lg,
+                "horizon": horizon,
+                "ml_better_count": 0,
+                "lp_better_count": 0,
+                "tie_count": 0,
+                "ml_win_rate": np.nan,
+                "lp_win_rate": np.nan,
+                "total": 0,
+            })
+            continue
+
+        y_true = actual[mask].values
+        y_ml = ml_pred[mask].values
+        y_lp = lp_pred[mask].values
+
+        ml_error = np.abs(y_true - y_ml)
+        lp_error = np.abs(y_true - y_lp)
+
+        ml_better = int(np.sum(ml_error < lp_error))
+        lp_better = int(np.sum(lp_error < ml_error))
+        tie = int(np.sum(ml_error == lp_error))
+        total = int(n)
+
+        results.append({
+            "liquidity_group": lg,
+            "horizon": horizon,
+            "ml_better_count": ml_better,
+            "lp_better_count": lp_better,
+            "tie_count": tie,
+            "ml_win_rate": ml_better / total if total > 0 else np.nan,
+            "lp_win_rate": lp_better / total if total > 0 else np.nan,
+            "total": total,
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["liquidity_group", "horizon", "ml_better_count", "lp_better_count",
+                 "tie_count", "ml_win_rate", "lp_win_rate", "total"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
