@@ -177,6 +177,81 @@ def predict_lgbm(
     return model.predict(X, num_iteration=model.best_iteration)
 
 
+def train_lgbm_quantile_model(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    target_col: str,
+    alpha: float,
+    num_boost_round: int = NUM_BOOST_ROUND,
+    early_stopping_rounds: int = EARLY_STOPPING_ROUNDS,
+) -> Tuple[lgb.Booster, Dict[str, float], int]:
+    """
+    Train a LightGBM quantile regression model for a given alpha.
+
+    Uses the same train/valid split logic as train_lgbm_model (including early stopping).
+
+    Args:
+        df: DataFrame with 'split' column ('train', 'valid', 'test').
+        feature_cols: List of feature column names.
+        target_col: Target column name.
+        alpha: Quantile level (e.g., 0.10, 0.50, or 0.90).
+        num_boost_round: Maximum boosting rounds.
+        early_stopping_rounds: Early stopping patience.
+
+    Returns:
+        Tuple of (model, val_metrics, best_iteration).
+        val_metrics includes 'pinball_loss' for the validation set.
+    """
+    # Build quantile-specific params
+    params = DEFAULT_LGBM_PARAMS.copy()
+    params["objective"] = "quantile"
+    params["alpha"] = alpha
+    params["metric"] = "quantile"
+
+    # Split data
+    train_df = df[df["split"] == "train"]
+    valid_df = df[df["split"] == "valid"]
+
+    X_train = train_df[feature_cols]
+    y_train = train_df[target_col]
+
+    X_valid = valid_df[feature_cols]
+    y_valid = valid_df[target_col]
+
+    # Create LightGBM datasets
+    train_data = lgb.Dataset(X_train, label=y_train)
+    valid_data = lgb.Dataset(X_valid, label=y_valid)
+
+    # Train model
+    model = lgb.train(
+        params,
+        train_data,
+        valid_sets=[train_data, valid_data],
+        valid_names=["train", "valid"],
+        num_boost_round=num_boost_round,
+        callbacks=[lgb.early_stopping(stopping_rounds=early_stopping_rounds)],
+    )
+
+    # Compute validation pinball loss
+    val_pred = model.predict(X_valid, num_iteration=model.best_iteration)
+    y_true = y_valid.values
+
+    # Pinball loss formula
+    residual = y_true - val_pred
+    pinball_loss = float(np.mean(np.where(
+        residual >= 0,
+        alpha * residual,
+        (alpha - 1) * residual
+    )))
+
+    val_metrics = {
+        "pinball_loss": pinball_loss,
+        "alpha": alpha,
+    }
+
+    return model, val_metrics, model.best_iteration
+
+
 def train_models_for_lg_horizon(
     df: pd.DataFrame,
     liquidity_group: str,

@@ -104,20 +104,25 @@ The list of Tier‑2 entities / (Entity, Liquidity Group) combinations should be
 
 ### 2.5 Prediction Types – Point + Quantiles
 
-For each (Entity, Liquidity Group, Week, Horizon) we ultimately want **four predictions**:
+For each (Entity, Liquidity Group, Week, Horizon) we produce **four predictions**:
 
-- **Point prediction** (standard regression model output)
-- **P10**
-- **P50**
-- **P90**
+- **Point prediction** (`y_pred_point`) - Standard LightGBM regression model (objective="regression")
+- **P10** (`y_pred_p10`) - 10th percentile from LightGBM quantile model (alpha=0.10)
+- **P50** (`y_pred_p50`) - 50th percentile / median from LightGBM quantile model (alpha=0.50)
+- **P90** (`y_pred_p90`) - 90th percentile from LightGBM quantile model (alpha=0.90)
+
+**Implementation (Task 3.1):**
+
+- **Tier-1 (ML) rows**: All four values are filled with model predictions
+- **Tier-2 (LP passthrough) rows**: `y_pred_point` = LP value, quantiles (`y_pred_p10/p50/p90`) = NaN
 
 Key points:
 
-- The **point prediction is not automatically equal to P50** – do **not** assume this.
-- Acceptable implementation strategies include:
-  - Point model (e.g. standard LGBM) plus separate LightGBM quantile models for P10, P50, P90.
-  - Or a unified quantile approach where point prediction is one of the quantiles.
-- Before making a big architectural choice here, **propose an approach and wait for approval**.
+- The **point prediction is NOT equal to P50** – they come from different models (regression vs quantile)
+- Each (LG × horizon) trains **4 separate models**: 1 point + 3 quantile
+- All models use the same features, split logic, and training data
+- Quantile models use `objective="quantile"` with `metric="quantile"` for proper early stopping
+- Current metrics focus on point forecasts; probabilistic metrics (coverage, pinball loss) will be added in a future task
 
 The output schema for forecasts should include at least:
 
