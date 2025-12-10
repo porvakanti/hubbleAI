@@ -2,6 +2,14 @@
 Evaluation metrics for hubbleAI.
 
 Supports WAPE, MAE, RMSE, and direction accuracy.
+
+WAPE Approaches:
+- Standard WAPE: sum(|actual - pred|) / sum(|actual|) - measures total absolute error
+- Aggregate-then-Error WAPE: |sum(actual) - sum(pred)| / |sum(actual)| - Treasury-aligned
+  (errors can cancel out, which is relevant for total cash position)
+
+For LG-level and Net-level metrics, we use Aggregate-then-Error WAPE because
+Treasury cares about the total position, not individual entity errors.
 """
 
 from __future__ import annotations
@@ -13,9 +21,14 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 
+# ---------------------------------------------------------------------------
+# Core Metric Functions
+# ---------------------------------------------------------------------------
+
+
 def wape(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-6) -> float:
     """
-    Compute Weighted Absolute Percentage Error.
+    Compute Standard Weighted Absolute Percentage Error.
 
     WAPE = sum(|y_true - y_pred|) / sum(|y_true|)
 
@@ -30,9 +43,31 @@ def wape(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-6) -> float:
     return float(np.sum(np.abs(y_true - y_pred)) / (np.sum(np.abs(y_true)) + eps))
 
 
+def wape_aggregate(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-6) -> float:
+    """
+    Compute Aggregate-then-Error WAPE (Treasury-aligned).
+
+    WAPE = |sum(y_true) - sum(y_pred)| / |sum(y_true)|
+
+    This approach allows over-predictions and under-predictions to cancel out,
+    which is relevant for Treasury's total cash position view.
+
+    Args:
+        y_true: Actual values.
+        y_pred: Predicted values.
+        eps: Small constant to avoid division by zero.
+
+    Returns:
+        WAPE value.
+    """
+    actual_sum = np.sum(y_true)
+    pred_sum = np.sum(y_pred)
+    return float(np.abs(actual_sum - pred_sum) / (np.abs(actual_sum) + eps))
+
+
 def wape_series(actual: pd.Series, pred: pd.Series, eps: float = 1e-6) -> float:
     """
-    Compute WAPE from pandas Series inputs.
+    Compute Standard WAPE from pandas Series inputs.
 
     WAPE = sum(|actual - pred|) / sum(|actual|)
 
@@ -50,6 +85,28 @@ def wape_series(actual: pd.Series, pred: pd.Series, eps: float = 1e-6) -> float:
     y_true = actual[mask].values
     y_pred = pred[mask].values
     return float(np.sum(np.abs(y_true - y_pred)) / (np.sum(np.abs(y_true)) + eps))
+
+
+def wape_aggregate_series(actual: pd.Series, pred: pd.Series, eps: float = 1e-6) -> float:
+    """
+    Compute Aggregate-then-Error WAPE from pandas Series inputs (Treasury-aligned).
+
+    WAPE = |sum(actual) - sum(pred)| / |sum(actual)|
+
+    Args:
+        actual: Actual values as pandas Series.
+        pred: Predicted values as pandas Series.
+        eps: Small constant to avoid division by zero.
+
+    Returns:
+        WAPE value as float.
+    """
+    mask = actual.notna() & pred.notna()
+    if mask.sum() == 0:
+        return np.nan
+    actual_sum = actual[mask].sum()
+    pred_sum = pred[mask].sum()
+    return float(np.abs(actual_sum - pred_sum) / (np.abs(actual_sum) + eps))
 
 
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -83,6 +140,25 @@ def mae_series(actual: pd.Series, pred: pd.Series) -> float:
     if mask.sum() == 0:
         return np.nan
     return float(np.mean(np.abs(actual[mask].values - pred[mask].values)))
+
+
+def mae_aggregate_series(actual: pd.Series, pred: pd.Series) -> float:
+    """
+    Compute MAE on aggregated sums (absolute error on totals).
+
+    MAE = |sum(actual) - sum(pred)|
+
+    Args:
+        actual: Actual values as pandas Series.
+        pred: Predicted values as pandas Series.
+
+    Returns:
+        Absolute error on the aggregated sums.
+    """
+    mask = actual.notna() & pred.notna()
+    if mask.sum() == 0:
+        return np.nan
+    return float(np.abs(actual[mask].sum() - pred[mask].sum()))
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -200,7 +276,7 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def compute_group_metrics(
+def compute_group_metrics_aggregate(
     df: pd.DataFrame,
     actual_col: str = "actual_value",
     ml_pred_col: str = "y_pred_point",
@@ -208,7 +284,10 @@ def compute_group_metrics(
     prev_actual_col: str = "prev_actual",
 ) -> Dict[str, float]:
     """
-    Compute ML and LP metrics for a group of rows.
+    Compute ML and LP metrics for a group using Aggregate-then-Error approach.
+
+    This is Treasury-aligned: sum all actuals and predictions first,
+    then compute error on the aggregated totals.
 
     Args:
         df: DataFrame with actual, ML prediction, and LP prediction columns.
@@ -220,33 +299,51 @@ def compute_group_metrics(
     Returns:
         Dictionary with metric values:
         - n_obs: Number of observations
+        - actual_sum, ml_pred_sum, lp_pred_sum: Aggregated sums
         - ml_wape, ml_mae, ml_directional_accuracy
         - lp_wape, lp_mae, lp_directional_accuracy
     """
     result = {"n_obs": len(df)}
 
-    # ML metrics
+    # Get values
     actual = df[actual_col]
     ml_pred = df[ml_pred_col]
+    lp_pred = df[lp_pred_col] if lp_pred_col in df.columns else pd.Series([np.nan] * len(df), index=df.index)
 
-    result["ml_wape"] = wape_series(actual, ml_pred)
-    result["ml_mae"] = mae_series(actual, ml_pred)
+    # Aggregated sums
+    result["actual_sum"] = actual.sum() if actual.notna().any() else np.nan
+    result["ml_pred_sum"] = ml_pred.sum() if ml_pred.notna().any() else np.nan
+    result["lp_pred_sum"] = lp_pred.sum() if lp_pred.notna().any() else np.nan
 
-    # LP metrics (may have NaN for h>=5)
-    lp_pred = df[lp_pred_col] if lp_pred_col in df.columns else pd.Series([np.nan] * len(df))
+    # ML metrics (aggregate-then-error)
+    result["ml_wape"] = wape_aggregate_series(actual, ml_pred)
+    result["ml_mae"] = mae_aggregate_series(actual, ml_pred)
 
-    result["lp_wape"] = wape_series(actual, lp_pred)
-    result["lp_mae"] = mae_series(actual, lp_pred)
+    # LP metrics (aggregate-then-error)
+    result["lp_wape"] = wape_aggregate_series(actual, lp_pred)
+    result["lp_mae"] = mae_aggregate_series(actual, lp_pred)
 
-    # Directional accuracy (requires prev_actual)
-    if prev_actual_col in df.columns:
-        prev_actual = df[prev_actual_col]
-        result["ml_directional_accuracy"] = directional_accuracy_series(
-            actual, ml_pred, prev_actual
-        )
-        result["lp_directional_accuracy"] = directional_accuracy_series(
-            actual, lp_pred, prev_actual
-        )
+    # Directional accuracy on aggregated sums
+    # For this, we need the previous period's aggregated actual
+    if prev_actual_col in df.columns and df[prev_actual_col].notna().any():
+        prev_sum = df[prev_actual_col].sum()
+        actual_sum = result["actual_sum"]
+        ml_sum = result["ml_pred_sum"]
+        lp_sum = result["lp_pred_sum"]
+
+        if pd.notna(prev_sum) and pd.notna(actual_sum) and pd.notna(ml_sum):
+            result["ml_directional_accuracy"] = float(
+                np.sign(actual_sum - prev_sum) == np.sign(ml_sum - prev_sum)
+            )
+        else:
+            result["ml_directional_accuracy"] = np.nan
+
+        if pd.notna(prev_sum) and pd.notna(actual_sum) and pd.notna(lp_sum):
+            result["lp_directional_accuracy"] = float(
+                np.sign(actual_sum - prev_sum) == np.sign(lp_sum - prev_sum)
+            )
+        else:
+            result["lp_directional_accuracy"] = np.nan
     else:
         result["ml_directional_accuracy"] = np.nan
         result["lp_directional_accuracy"] = np.nan
@@ -259,20 +356,35 @@ def compute_metrics_by_lg(
     actual_col: str = "actual_value",
     ml_pred_col: str = "y_pred_point",
     lp_pred_col: str = "lp_baseline_point",
+    include_passthrough: bool = True,
 ) -> pd.DataFrame:
     """
     Compute LG-level metrics: grouped by (week_start, liquidity_group, horizon).
+
+    Uses Aggregate-then-Error WAPE (Treasury-aligned):
+    - Sum actuals and predictions across all entities in each group
+    - Compute WAPE on the aggregated totals
 
     Args:
         df: Backtest predictions DataFrame.
         actual_col: Column name for actual values.
         ml_pred_col: Column name for ML predictions.
         lp_pred_col: Column name for LP baseline predictions.
+        include_passthrough: If False, exclude Tier-2 passthrough rows (clean ML metrics).
 
     Returns:
         DataFrame with metrics per (week_start, liquidity_group, horizon).
     """
-    # Add prev_actual for directional accuracy
+    df = df.copy()
+
+    # Filter out passthroughs if requested (for clean ML metrics)
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    # Add prev_actual for directional accuracy (per entity first, then we'll aggregate)
     df = _add_prev_actual(df)
 
     results = []
@@ -280,7 +392,7 @@ def compute_metrics_by_lg(
 
     for keys, group in df.groupby(group_cols, observed=True):
         week_start, lg, horizon = keys
-        metrics = compute_group_metrics(
+        metrics = compute_group_metrics_aggregate(
             group,
             actual_col=actual_col,
             ml_pred_col=ml_pred_col,
@@ -297,6 +409,7 @@ def compute_metrics_by_lg(
     result_df = pd.DataFrame(results)
     # Reorder columns
     col_order = ["week_start", "liquidity_group", "horizon", "n_obs",
+                 "actual_sum", "ml_pred_sum", "lp_pred_sum",
                  "ml_wape", "ml_mae", "ml_directional_accuracy",
                  "lp_wape", "lp_mae", "lp_directional_accuracy"]
     return result_df[[c for c in col_order if c in result_df.columns]]
@@ -307,19 +420,32 @@ def compute_metrics_by_entity(
     actual_col: str = "actual_value",
     ml_pred_col: str = "y_pred_point",
     lp_pred_col: str = "lp_baseline_point",
+    include_passthrough: bool = True,
 ) -> pd.DataFrame:
     """
     Compute Entity-level metrics: grouped by (week_start, entity, liquidity_group, horizon).
+
+    At entity level, each group has 1 row, so standard WAPE and aggregate WAPE are equivalent.
 
     Args:
         df: Backtest predictions DataFrame.
         actual_col: Column name for actual values.
         ml_pred_col: Column name for ML predictions.
         lp_pred_col: Column name for LP baseline predictions.
+        include_passthrough: If False, exclude Tier-2 passthrough rows.
 
     Returns:
         DataFrame with metrics per (week_start, entity, liquidity_group, horizon).
     """
+    df = df.copy()
+
+    # Filter out passthroughs if requested
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
     # Add prev_actual for directional accuracy
     df = _add_prev_actual(df)
 
@@ -328,7 +454,9 @@ def compute_metrics_by_entity(
 
     for keys, group in df.groupby(group_cols, observed=True):
         week_start, entity, lg, horizon = keys
-        metrics = compute_group_metrics(
+
+        # For entity level, use aggregate metrics (equivalent to standard when n=1)
+        metrics = compute_group_metrics_aggregate(
             group,
             actual_col=actual_col,
             ml_pred_col=ml_pred_col,
@@ -338,6 +466,11 @@ def compute_metrics_by_entity(
         metrics["entity"] = entity
         metrics["liquidity_group"] = lg
         metrics["horizon"] = horizon
+
+        # Add is_pass_through flag for entity-level metrics
+        if "is_pass_through" in group.columns:
+            metrics["is_pass_through"] = group["is_pass_through"].iloc[0]
+
         results.append(metrics)
 
     if not results:
@@ -346,8 +479,10 @@ def compute_metrics_by_entity(
     result_df = pd.DataFrame(results)
     # Reorder columns
     col_order = ["week_start", "entity", "liquidity_group", "horizon", "n_obs",
+                 "actual_sum", "ml_pred_sum", "lp_pred_sum",
                  "ml_wape", "ml_mae", "ml_directional_accuracy",
-                 "lp_wape", "lp_mae", "lp_directional_accuracy"]
+                 "lp_wape", "lp_mae", "lp_directional_accuracy",
+                 "is_pass_through"]
     return result_df[[c for c in col_order if c in result_df.columns]]
 
 
@@ -356,22 +491,34 @@ def compute_metrics_net(
     actual_col: str = "actual_value",
     ml_pred_col: str = "y_pred_point",
     lp_pred_col: str = "lp_baseline_point",
+    include_passthrough: bool = True,
 ) -> pd.DataFrame:
     """
     Compute Net-level metrics: TRR + TRP summed, grouped by (week_start, horizon).
 
-    This aggregates across both liquidity groups (TRR and TRP) by summing
-    actual values and predictions, then computing metrics on the sums.
+    Uses Aggregate-then-Error approach:
+    - Sum actuals and predictions across ALL entities and BOTH LGs
+    - Compute WAPE on the aggregated totals
 
     Args:
         df: Backtest predictions DataFrame.
         actual_col: Column name for actual values.
         ml_pred_col: Column name for ML predictions.
         lp_pred_col: Column name for LP baseline predictions.
+        include_passthrough: If False, exclude Tier-2 passthrough rows (clean ML metrics).
 
     Returns:
         DataFrame with net metrics per (week_start, horizon).
     """
+    df = df.copy()
+
+    # Filter out passthroughs if requested (for clean ML metrics)
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
     # Aggregate by summing across entities and LGs per (week_start, horizon)
     agg_cols = {
         actual_col: "sum",
@@ -387,13 +534,14 @@ def compute_metrics_net(
     net_df["prev_actual"] = net_df.groupby("horizon", observed=True)[actual_col].shift(1)
 
     results = []
-    for keys, group in net_df.groupby(["week_start", "horizon"], observed=True):
-        week_start, horizon = keys
+    for _, row in net_df.iterrows():
+        week_start = row["week_start"]
+        horizon = row["horizon"]
 
-        actual = group[actual_col].iloc[0]
-        ml_pred = group[ml_pred_col].iloc[0]
-        lp_pred = group[lp_pred_col].iloc[0] if lp_pred_col in group.columns else np.nan
-        prev = group["prev_actual"].iloc[0]
+        actual = row[actual_col]
+        ml_pred = row[ml_pred_col]
+        lp_pred = row[lp_pred_col] if lp_pred_col in row.index else np.nan
+        prev = row["prev_actual"]
 
         metrics = {
             "week_start": week_start,
@@ -404,7 +552,7 @@ def compute_metrics_net(
             "net_lp_pred": lp_pred,
         }
 
-        # Compute metrics
+        # Compute metrics (already aggregated, so just compute error)
         if pd.notna(actual) and pd.notna(ml_pred):
             metrics["ml_wape"] = abs(actual - ml_pred) / (abs(actual) + 1e-6)
             metrics["ml_mae"] = abs(actual - ml_pred)
@@ -454,6 +602,7 @@ def compute_metrics_net_entity(
     actual_col: str = "actual_value",
     ml_pred_col: str = "y_pred_point",
     lp_pred_col: str = "lp_baseline_point",
+    include_passthrough: bool = True,
 ) -> pd.DataFrame:
     """
     Compute Net-Entity-level metrics: TRR + TRP summed per entity,
@@ -466,10 +615,20 @@ def compute_metrics_net_entity(
         actual_col: Column name for actual values.
         ml_pred_col: Column name for ML predictions.
         lp_pred_col: Column name for LP baseline predictions.
+        include_passthrough: If False, exclude Tier-2 passthrough rows.
 
     Returns:
         DataFrame with net-entity metrics per (week_start, entity, horizon).
     """
+    df = df.copy()
+
+    # Filter out passthroughs if requested
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
     # Aggregate by summing TRR+TRP for each entity per (week_start, entity, horizon)
     agg_cols = {
         actual_col: "sum",
@@ -489,13 +648,15 @@ def compute_metrics_net_entity(
     )[actual_col].shift(1)
 
     results = []
-    for keys, group in net_entity_df.groupby(["week_start", "entity", "horizon"], observed=True):
-        week_start, entity, horizon = keys
+    for _, row in net_entity_df.iterrows():
+        week_start = row["week_start"]
+        entity = row["entity"]
+        horizon = row["horizon"]
 
-        actual = group[actual_col].iloc[0]
-        ml_pred = group[ml_pred_col].iloc[0]
-        lp_pred = group[lp_pred_col].iloc[0] if lp_pred_col in group.columns else np.nan
-        prev = group["prev_actual"].iloc[0]
+        actual = row[actual_col]
+        ml_pred = row[ml_pred_col]
+        lp_pred = row[lp_pred_col] if lp_pred_col in row.index else np.nan
+        prev = row["prev_actual"]
 
         metrics = {
             "week_start": week_start,
