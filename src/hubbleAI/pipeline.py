@@ -262,6 +262,7 @@ def _build_and_run_models_forward(
     from hubbleAI.features.builder import get_trp_extra_features
     from hubbleAI.models.lightgbm_model import (
         train_lgbm_model,
+        train_lgbm_quantile_model,
         predict_lgbm,
         assign_split,
     )
@@ -320,7 +321,7 @@ def _build_and_run_models_forward(
                 continue
 
             try:
-                # Train model on all available data with targets
+                # Train point model on all available data with targets
                 model, val_metrics, best_iter = train_lgbm_model(
                     df_train, feature_cols, target_col
                 )
@@ -328,6 +329,17 @@ def _build_and_run_models_forward(
                 logger.info(
                     f"{lg} H{horizon}: val_wape={val_metrics['wape']:.4f}, "
                     f"best_iter={best_iter}"
+                )
+
+                # Train quantile models (p10, p50, p90)
+                model_q10, _, _ = train_lgbm_quantile_model(
+                    df_train, feature_cols, target_col, alpha=0.10
+                )
+                model_q50, _, _ = train_lgbm_quantile_model(
+                    df_train, feature_cols, target_col, alpha=0.50
+                )
+                model_q90, _, _ = train_lgbm_quantile_model(
+                    df_train, feature_cols, target_col, alpha=0.90
                 )
 
                 # For forward mode: predict ONLY for ref_week_start
@@ -339,7 +351,13 @@ def _build_and_run_models_forward(
                     )
                     continue
 
+                # Point predictions
                 predictions = predict_lgbm(model, df_ref, feature_cols)
+
+                # Quantile predictions
+                q10 = predict_lgbm(model_q10, df_ref, feature_cols)
+                q50 = predict_lgbm(model_q50, df_ref, feature_cols)
+                q90 = predict_lgbm(model_q90, df_ref, feature_cols)
 
                 # Build output DataFrame
                 output = df_ref[
@@ -354,9 +372,9 @@ def _build_and_run_models_forward(
                 output["actual_value"] = np.nan
 
                 output["y_pred_point"] = predictions
-                output["y_pred_p10"] = np.nan
-                output["y_pred_p50"] = np.nan
-                output["y_pred_p90"] = np.nan
+                output["y_pred_p10"] = q10
+                output["y_pred_p50"] = q50
+                output["y_pred_p90"] = q90
 
                 output["model_type"] = "lightgbm"
                 output["is_pass_through"] = False
@@ -417,6 +435,7 @@ def _build_and_run_models_backtest(
     from hubbleAI.features.builder import get_trp_extra_features
     from hubbleAI.models.lightgbm_model import (
         train_lgbm_model,
+        train_lgbm_quantile_model,
         predict_lgbm,
     )
     from hubbleAI.evaluation.metrics import (
@@ -480,7 +499,7 @@ def _build_and_run_models_backtest(
                 continue
 
             try:
-                # Train model on train+valid data
+                # Train point model on train+valid data
                 model, val_metrics, best_iter = train_lgbm_model(
                     df_trainval, feature_cols, target_col
                 )
@@ -488,6 +507,17 @@ def _build_and_run_models_backtest(
                 logger.info(
                     f"{lg} H{horizon}: val_wape={val_metrics['wape']:.4f}, "
                     f"best_iter={best_iter}"
+                )
+
+                # Train quantile models (p10, p50, p90)
+                model_q10, _, _ = train_lgbm_quantile_model(
+                    df_trainval, feature_cols, target_col, alpha=0.10
+                )
+                model_q50, _, _ = train_lgbm_quantile_model(
+                    df_trainval, feature_cols, target_col, alpha=0.50
+                )
+                model_q90, _, _ = train_lgbm_quantile_model(
+                    df_trainval, feature_cols, target_col, alpha=0.90
                 )
 
                 # For backtest mode: predict ONLY for test split (last 5%)
@@ -499,7 +529,13 @@ def _build_and_run_models_backtest(
                     )
                     continue
 
+                # Point predictions
                 predictions = predict_lgbm(model, df_test, feature_cols)
+
+                # Quantile predictions
+                q10 = predict_lgbm(model_q10, df_test, feature_cols)
+                q50 = predict_lgbm(model_q50, df_test, feature_cols)
+                q90 = predict_lgbm(model_q90, df_test, feature_cols)
 
                 # Build output DataFrame
                 output = df_test[
@@ -523,9 +559,9 @@ def _build_and_run_models_backtest(
                 else:
                     output["lp_baseline_point"] = np.nan
 
-                output["y_pred_p10"] = np.nan
-                output["y_pred_p50"] = np.nan
-                output["y_pred_p90"] = np.nan
+                output["y_pred_p10"] = q10
+                output["y_pred_p50"] = q50
+                output["y_pred_p90"] = q90
 
                 output["model_type"] = "lightgbm"
                 output["is_pass_through"] = False
