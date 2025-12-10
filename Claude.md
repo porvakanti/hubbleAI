@@ -183,6 +183,15 @@ Includes all standard forecast columns plus:
 #### 2. Metrics Files
 Saved to: `data/processed/metrics/backtests/{ref_week_start}/`
 
+**Primary Metrics (Business KPIs)** - Use these for Treasury reporting and model evaluation:
+- `metrics_by_lg_clean.parquet` - Per-week LG-level WAPE (ML wins ~75-90% of weeks for TRR)
+- `metrics_net_clean.parquet` - Per-week Net (TRR+TRP) WAPE for total cash position accuracy
+
+These answer: *"How accurate is our weekly forecast?"*
+
+**Full Metrics** - Include Tier-2 LP passthroughs (Treasury's complete view):
+- `metrics_by_lg.parquet`, `metrics_net.parquet`, `metrics_by_entity.parquet`, `metrics_net_entity.parquet`
+
 Two types of metrics are computed:
 - **Full metrics**: Include all predictions (Tier-1 ML + Tier-2 LP passthroughs) - represents Treasury's total cash view
 - **Clean metrics**: Tier-1 only, excluding LP passthroughs - represents true ML model performance
@@ -256,7 +265,13 @@ wins = pd.read_parquet(status.metrics_paths["model_vs_lp_wins"])
 #### 3. Error Diagnostics (Backtest Only)
 Saved to: `data/processed/metrics/backtests/{ref_week_start}/diagnostics/`
 
+**Diagnostics (Debugging/Analysis)** - Use these to identify model weaknesses and problematic entities:
+
+These answer: *"Where is the model struggling?"*
+
 Diagnostics provide deeper analysis of model performance. They always use the **full dataset** (includes Tier-2 passthroughs).
+
+**Note:** The `model_vs_lp_wins` diagnostic compares ML vs LP at the per-observation (entity × week) level, which differs from the primary metrics that compare at the aggregate LG level. ML may lose many individual entity comparisons but still win at the aggregate level because individual errors cancel out.
 
 | File | Grouping | Description |
 |------|----------|-------------|
