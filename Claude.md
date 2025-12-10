@@ -164,18 +164,59 @@ The `run_forecast()` function supports two modes:
   - Last 5% of weeks → test (predictions generated here)
 - Outputs predictions ONLY for the last 5% (test split) weeks
 - `actual_value` = observed amount for that target_week_start
+- `lp_baseline_point` = LP forecast for horizons 1-4, NaN for horizons 5-8
 - Saved to: `data/processed/backtests/{ref_week_start}/backtest_predictions.parquet`
-- TODO: Future integration for WAPE/MAE/direction accuracy metrics
+- Metrics saved to: `data/processed/metrics/backtests/{ref_week_start}/`
+
+### Backtest Outputs
+
+When running in backtest mode, the pipeline produces:
+
+#### 1. Predictions DataFrame
+Saved to: `data/processed/backtests/{ref_week_start}/backtest_predictions.parquet`
+
+Includes all standard forecast columns plus:
+- `lp_baseline_point`: LP forecast value for comparison
+  - Horizons 1-4: Uses W1_Forecast, W2_Forecast, W3_Forecast, W4_Forecast respectively
+  - Horizons 5-8: NaN (no LP baseline exists)
+
+#### 2. Metrics Files
+Saved to: `data/processed/metrics/backtests/{ref_week_start}/`
+
+Four aggregation levels comparing ML vs LP vs Actuals:
+
+| File | Grouping | Description |
+|------|----------|-------------|
+| `metrics_by_lg.parquet` | week_start, liquidity_group, horizon | LG-level metrics |
+| `metrics_by_entity.parquet` | week_start, entity, liquidity_group, horizon | Entity-level metrics |
+| `metrics_net.parquet` | week_start, horizon | Net TRR+TRP summed metrics |
+| `metrics_net_entity.parquet` | week_start, entity, horizon | Net TRR+TRP per entity metrics |
+
+#### Metrics Computed
+- **WAPE** = sum(|actual - pred|) / sum(|actual|)
+- **MAE** = mean(|actual - pred|)
+- **Directional Accuracy** = fraction where sign(pred - prev_actual) = sign(actual - prev_actual)
+
+Each metric is computed for both ML predictions and LP baseline.
 
 Usage examples:
 ```python
 from hubbleAI.pipeline import run_forecast
+import pandas as pd
 
 # Forward mode (operational)
 status = run_forecast(mode="forward", trigger_source="manual")
+forecasts_df = pd.read_parquet(status.output_paths["forecasts"])
 
 # Backtest mode (evaluation)
 status = run_forecast(mode="backtest", trigger_source="notebook")
+backtest_df = pd.read_parquet(status.output_paths["backtest"])
+
+# Access backtest metrics
+metrics_lg = pd.read_parquet(status.metrics_paths["metrics_by_lg"])
+metrics_entity = pd.read_parquet(status.metrics_paths["metrics_by_entity"])
+metrics_net = pd.read_parquet(status.metrics_paths["metrics_net"])
+metrics_net_entity = pd.read_parquet(status.metrics_paths["metrics_net_entity"])
 ```
 
 ### 2.7 Data Sources & I/O Strategy (Current vs Future)

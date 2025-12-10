@@ -186,3 +186,27 @@ FORECAST_OUTPUT_COLS: List[str] = [
     "model_type",
     "is_pass_through",
 ]
+
+# Backtest output columns (includes LP baseline for comparison)
+BACKTEST_OUTPUT_COLS: List[str] = [
+    "entity",
+    "liquidity_group",
+    "week_start",
+    "target_week_start",
+    "horizon",
+    "actual_value",
+    "y_pred_point",
+    "lp_baseline_point",  # LP forecast for h=1-4, NaN for h>=5
+    "y_pred_p10",
+    "y_pred_p50",
+    "y_pred_p90",
+    "model_type",
+    "is_pass_through",
+]
+
+# ---------------------------------------------------------------------------
+# Metrics Configuration
+# ---------------------------------------------------------------------------
+
+# Metrics output directory for backtests
+BACKTEST_METRICS_DIR = DATA_PROCESSED_DIR / "metrics" / "backtests"
