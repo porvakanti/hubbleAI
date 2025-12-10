@@ -563,6 +563,14 @@ def _compute_and_save_backtest_metrics(
     """
     Compute and save backtest metrics at 4 aggregation levels.
 
+    For each level, saves TWO versions:
+    - Full metrics: includes all data (Tier-1 + Tier-2 passthroughs)
+    - Clean metrics: Tier-1 only (true ML predictions, no LP passthrough)
+
+    Uses Aggregate-then-Error WAPE (Treasury-aligned):
+    - WAPE = |sum(actual) - sum(pred)| / |sum(actual)|
+    - Over/under predictions cancel out, relevant for total cash position
+
     Args:
         forecasts_df: Backtest predictions DataFrame with lp_baseline_point.
         ref_week_start: Reference week for output directory naming.
@@ -583,21 +591,33 @@ def _compute_and_save_backtest_metrics(
     metrics_dir = BACKTEST_METRICS_DIR / ref_week_start.isoformat()
     metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Computing backtest metrics at 4 aggregation levels...")
+    logger.info("Computing backtest metrics (full + clean versions)...")
 
     # 1. LG-level metrics: (week_start, liquidity_group, horizon)
+    # 1a. Full (includes passthroughs)
     try:
-        metrics_lg = compute_metrics_by_lg(forecasts_df)
+        metrics_lg = compute_metrics_by_lg(forecasts_df, include_passthrough=True)
         lg_path = metrics_dir / "metrics_by_lg.parquet"
         metrics_lg.to_parquet(lg_path, index=False)
         metrics_paths["metrics_by_lg"] = str(lg_path)
-        logger.info(f"LG-level metrics saved: {len(metrics_lg)} rows")
+        logger.info(f"LG-level metrics (full) saved: {len(metrics_lg)} rows")
     except Exception as e:
         logger.error(f"Error computing LG-level metrics: {e}")
 
-    # 2. Entity-level metrics: (week_start, entity, liquidity_group, horizon)
+    # 1b. Clean (Tier-1 only - true ML performance)
     try:
-        metrics_entity = compute_metrics_by_entity(forecasts_df)
+        metrics_lg_clean = compute_metrics_by_lg(forecasts_df, include_passthrough=False)
+        lg_clean_path = metrics_dir / "metrics_by_lg_clean.parquet"
+        metrics_lg_clean.to_parquet(lg_clean_path, index=False)
+        metrics_paths["metrics_by_lg_clean"] = str(lg_clean_path)
+        logger.info(f"LG-level metrics (clean) saved: {len(metrics_lg_clean)} rows")
+    except Exception as e:
+        logger.error(f"Error computing LG-level clean metrics: {e}")
+
+    # 2. Entity-level metrics: (week_start, entity, liquidity_group, horizon)
+    # Full only (entity-level already shows passthrough flag)
+    try:
+        metrics_entity = compute_metrics_by_entity(forecasts_df, include_passthrough=True)
         entity_path = metrics_dir / "metrics_by_entity.parquet"
         metrics_entity.to_parquet(entity_path, index=False)
         metrics_paths["metrics_by_entity"] = str(entity_path)
@@ -606,18 +626,29 @@ def _compute_and_save_backtest_metrics(
         logger.error(f"Error computing Entity-level metrics: {e}")
 
     # 3. Net-level metrics: (week_start, horizon) - TRR+TRP summed
+    # 3a. Full (includes passthroughs)
     try:
-        metrics_net = compute_metrics_net(forecasts_df)
+        metrics_net = compute_metrics_net(forecasts_df, include_passthrough=True)
         net_path = metrics_dir / "metrics_net.parquet"
         metrics_net.to_parquet(net_path, index=False)
         metrics_paths["metrics_net"] = str(net_path)
-        logger.info(f"Net-level metrics saved: {len(metrics_net)} rows")
+        logger.info(f"Net-level metrics (full) saved: {len(metrics_net)} rows")
     except Exception as e:
         logger.error(f"Error computing Net-level metrics: {e}")
 
+    # 3b. Clean (Tier-1 only - true ML performance)
+    try:
+        metrics_net_clean = compute_metrics_net(forecasts_df, include_passthrough=False)
+        net_clean_path = metrics_dir / "metrics_net_clean.parquet"
+        metrics_net_clean.to_parquet(net_clean_path, index=False)
+        metrics_paths["metrics_net_clean"] = str(net_clean_path)
+        logger.info(f"Net-level metrics (clean) saved: {len(metrics_net_clean)} rows")
+    except Exception as e:
+        logger.error(f"Error computing Net-level clean metrics: {e}")
+
     # 4. Net-Entity-level metrics: (week_start, entity, horizon) - TRR+TRP summed per entity
     try:
-        metrics_net_entity = compute_metrics_net_entity(forecasts_df)
+        metrics_net_entity = compute_metrics_net_entity(forecasts_df, include_passthrough=True)
         net_entity_path = metrics_dir / "metrics_net_entity.parquet"
         metrics_net_entity.to_parquet(net_entity_path, index=False)
         metrics_paths["metrics_net_entity"] = str(net_entity_path)

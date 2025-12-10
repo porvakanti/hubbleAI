@@ -183,21 +183,45 @@ Includes all standard forecast columns plus:
 #### 2. Metrics Files
 Saved to: `data/processed/metrics/backtests/{ref_week_start}/`
 
-Four aggregation levels comparing ML vs LP vs Actuals:
+Two types of metrics are computed:
+- **Full metrics**: Include all predictions (Tier-1 ML + Tier-2 LP passthroughs) - represents Treasury's total cash view
+- **Clean metrics**: Tier-1 only, excluding LP passthroughs - represents true ML model performance
 
 | File | Grouping | Description |
 |------|----------|-------------|
-| `metrics_by_lg.parquet` | week_start, liquidity_group, horizon | LG-level metrics |
-| `metrics_by_entity.parquet` | week_start, entity, liquidity_group, horizon | Entity-level metrics |
-| `metrics_net.parquet` | week_start, horizon | Net TRR+TRP summed metrics |
+| `metrics_by_lg.parquet` | week_start, liquidity_group, horizon | LG-level metrics (full) |
+| `metrics_by_lg_clean.parquet` | week_start, liquidity_group, horizon | LG-level metrics (Tier-1 only) |
+| `metrics_by_entity.parquet` | week_start, entity, liquidity_group, horizon | Entity-level metrics (includes is_pass_through flag) |
+| `metrics_net.parquet` | week_start, horizon | Net TRR+TRP summed metrics (full) |
+| `metrics_net_clean.parquet` | week_start, horizon | Net TRR+TRP summed metrics (Tier-1 only) |
 | `metrics_net_entity.parquet` | week_start, entity, horizon | Net TRR+TRP per entity metrics |
 
 #### Metrics Computed
-- **WAPE** = sum(|actual - pred|) / sum(|actual|)
-- **MAE** = mean(|actual - pred|)
-- **Directional Accuracy** = fraction where sign(pred - prev_actual) = sign(actual - prev_actual)
+
+**WAPE (Aggregate-then-Error)** - Treasury-aligned formula:
+- `WAPE = |sum(actual) - sum(pred)| / |sum(actual)|`
+- This allows over/under predictions to cancel out when aggregated
+- Reflects Treasury's view of total cash position accuracy
+
+**MAE** = mean(|actual - pred|)
+
+**Directional Accuracy** = fraction where sign(pred - prev_actual) = sign(actual - prev_actual)
 
 Each metric is computed for both ML predictions and LP baseline.
+
+#### Programmatic Access with include_passthrough Parameter
+
+The metric functions support filtering to exclude LP passthroughs:
+
+```python
+from hubbleAI.evaluation.metrics import compute_metrics_by_lg, compute_metrics_net
+
+# Full metrics (includes Tier-2 passthroughs) - Treasury view
+metrics_full = compute_metrics_by_lg(forecasts_df, include_passthrough=True)
+
+# Clean metrics (Tier-1 only) - true ML performance
+metrics_clean = compute_metrics_by_lg(forecasts_df, include_passthrough=False)
+```
 
 Usage examples:
 ```python
@@ -212,11 +236,15 @@ forecasts_df = pd.read_parquet(status.output_paths["forecasts"])
 status = run_forecast(mode="backtest", trigger_source="notebook")
 backtest_df = pd.read_parquet(status.output_paths["backtest"])
 
-# Access backtest metrics
+# Access backtest metrics (full - includes passthroughs)
 metrics_lg = pd.read_parquet(status.metrics_paths["metrics_by_lg"])
 metrics_entity = pd.read_parquet(status.metrics_paths["metrics_by_entity"])
 metrics_net = pd.read_parquet(status.metrics_paths["metrics_net"])
 metrics_net_entity = pd.read_parquet(status.metrics_paths["metrics_net_entity"])
+
+# Access clean metrics (Tier-1 only - true ML performance)
+metrics_lg_clean = pd.read_parquet(status.metrics_paths["metrics_by_lg_clean"])
+metrics_net_clean = pd.read_parquet(status.metrics_paths["metrics_net_clean"])
 ```
 
 ### 2.7 Data Sources & I/O Strategy (Current vs Future)
