@@ -726,6 +726,10 @@ def _compute_and_save_diagnostics(
         compute_residual_diagnostics,
         compute_entity_stability,
         compute_model_vs_lp_wins,
+        compute_quantile_coverage_by_horizon,
+        compute_quantile_coverage_by_lg_horizon,
+        compute_pinball_by_horizon,
+        compute_pinball_by_lg_horizon,
     )
 
     diagnostic_paths: Dict[str, str] = {}
@@ -775,6 +779,62 @@ def _compute_and_save_diagnostics(
         logger.info(f"Model vs LP wins saved: {len(wins)} rows")
     except Exception as e:
         logger.error(f"Error computing model vs LP wins: {e}")
+
+    # -------------------------------------------------------------------------
+    # Probabilistic Diagnostics (Task 3.2) - Tier-1 only
+    # -------------------------------------------------------------------------
+
+    # 5. Quantile coverage by horizon
+    try:
+        coverage_h = compute_quantile_coverage_by_horizon(
+            forecasts_df,
+            include_passthrough=False,
+        )
+        coverage_h_path = diagnostics_dir / "quantile_coverage_by_horizon.parquet"
+        coverage_h.to_parquet(coverage_h_path, index=False)
+        diagnostic_paths["quantile_coverage_by_horizon"] = str(coverage_h_path)
+        logger.info(f"Quantile coverage by horizon saved: {len(coverage_h)} rows")
+    except Exception as e:
+        logger.error(f"Error computing quantile coverage by horizon: {e}")
+
+    # 6. Quantile coverage by LG × horizon
+    try:
+        coverage_lg_h = compute_quantile_coverage_by_lg_horizon(
+            forecasts_df,
+            include_passthrough=False,
+        )
+        coverage_lg_h_path = diagnostics_dir / "quantile_coverage_by_lg_horizon.parquet"
+        coverage_lg_h.to_parquet(coverage_lg_h_path, index=False)
+        diagnostic_paths["quantile_coverage_by_lg_horizon"] = str(coverage_lg_h_path)
+        logger.info(f"Quantile coverage by LG×horizon saved: {len(coverage_lg_h)} rows")
+    except Exception as e:
+        logger.error(f"Error computing quantile coverage by LG×horizon: {e}")
+
+    # 7. Pinball loss by horizon
+    try:
+        pinball_h = compute_pinball_by_horizon(
+            forecasts_df,
+            include_passthrough=False,
+        )
+        pinball_h_path = diagnostics_dir / "pinball_by_horizon.parquet"
+        pinball_h.to_parquet(pinball_h_path, index=False)
+        diagnostic_paths["pinball_by_horizon"] = str(pinball_h_path)
+        logger.info(f"Pinball loss by horizon saved: {len(pinball_h)} rows")
+    except Exception as e:
+        logger.error(f"Error computing pinball loss by horizon: {e}")
+
+    # 8. Pinball loss by LG × horizon
+    try:
+        pinball_lg_h = compute_pinball_by_lg_horizon(
+            forecasts_df,
+            include_passthrough=False,
+        )
+        pinball_lg_h_path = diagnostics_dir / "pinball_by_lg_horizon.parquet"
+        pinball_lg_h.to_parquet(pinball_lg_h_path, index=False)
+        diagnostic_paths["pinball_by_lg_horizon"] = str(pinball_lg_h_path)
+        logger.info(f"Pinball loss by LG×horizon saved: {len(pinball_lg_h)} rows")
+    except Exception as e:
+        logger.error(f"Error computing pinball loss by LG×horizon: {e}")
 
     return diagnostic_paths
 

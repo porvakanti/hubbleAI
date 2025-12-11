@@ -1055,3 +1055,325 @@ def compute_model_vs_lp_wins(
     col_order = ["liquidity_group", "horizon", "ml_better_count", "lp_better_count",
                  "tie_count", "ml_win_rate", "lp_win_rate", "total"]
     return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+# ---------------------------------------------------------------------------
+# Probabilistic Diagnostics (Task 3.2)
+# ---------------------------------------------------------------------------
+
+
+def pinball_loss(
+    actual: pd.Series,
+    pred: pd.Series,
+    alpha: float,
+) -> float:
+    """
+    Compute pinball (quantile) loss for a given alpha.
+
+    For each observation:
+        u = actual - pred
+        loss = max(alpha * u, (alpha - 1) * u)
+
+    This is equivalent to:
+        - If actual > pred (under-prediction): loss = alpha * |error|
+        - If actual < pred (over-prediction): loss = (1 - alpha) * |error|
+
+    Args:
+        actual: Actual values as pandas Series.
+        pred: Predicted values as pandas Series.
+        alpha: Quantile level (e.g., 0.10, 0.50, 0.90).
+
+    Returns:
+        Mean pinball loss over all non-null pairs, or NaN if no valid pairs.
+    """
+    mask = actual.notna() & pred.notna()
+    if mask.sum() == 0:
+        return np.nan
+
+    y_true = actual[mask].values
+    y_pred = pred[mask].values
+
+    u = y_true - y_pred
+    loss = np.maximum(alpha * u, (alpha - 1) * u)
+    return float(np.mean(loss))
+
+
+def compute_quantile_coverage_by_horizon(
+    df: pd.DataFrame,
+    *,
+    include_passthrough: bool = False,
+) -> pd.DataFrame:
+    """
+    Compute quantile coverage metrics aggregated by horizon only.
+
+    Coverage metrics show how well-calibrated the quantile predictions are:
+    - prob_below_p10 should be ≈ 0.10 for well-calibrated P10
+    - prob_between_p10_p90 should be ≈ 0.80 for well-calibrated P10/P90
+    - prob_above_p90 should be ≈ 0.10 for well-calibrated P90
+    - prob_above_p50 / prob_below_p50 should each be ≈ 0.50 for well-calibrated median
+
+    Args:
+        df: Backtest predictions DataFrame with actual_value and quantile columns.
+        include_passthrough: If False (default), exclude Tier-2 passthrough rows.
+            Note: Tier-2 rows have NaN quantiles, so they're effectively excluded anyway.
+
+    Returns:
+        DataFrame with columns:
+            horizon, n, prob_below_p10, prob_between_p10_p90, prob_above_p90,
+            prob_above_p50, prob_below_p50
+    """
+    df = df.copy()
+
+    # Filter out passthroughs if requested
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    # Filter to rows with valid actual and all quantile predictions
+    mask = (
+        df["actual_value"].notna() &
+        df["y_pred_p10"].notna() &
+        df["y_pred_p50"].notna() &
+        df["y_pred_p90"].notna()
+    )
+    df = df[mask].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    results = []
+
+    for horizon, group in df.groupby("horizon", observed=True):
+        actual = group["actual_value"].values
+        p10 = group["y_pred_p10"].values
+        p50 = group["y_pred_p50"].values
+        p90 = group["y_pred_p90"].values
+
+        n = len(group)
+
+        # Coverage indicators
+        below_p10 = actual <= p10
+        above_p90 = actual >= p90
+        between_p10_p90 = (actual > p10) & (actual < p90)
+        above_p50 = actual >= p50
+        below_p50 = actual < p50
+
+        results.append({
+            "horizon": horizon,
+            "n": n,
+            "prob_below_p10": float(np.mean(below_p10)),
+            "prob_between_p10_p90": float(np.mean(between_p10_p90)),
+            "prob_above_p90": float(np.mean(above_p90)),
+            "prob_above_p50": float(np.mean(above_p50)),
+            "prob_below_p50": float(np.mean(below_p50)),
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["horizon", "n", "prob_below_p10", "prob_between_p10_p90",
+                 "prob_above_p90", "prob_above_p50", "prob_below_p50"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def compute_quantile_coverage_by_lg_horizon(
+    df: pd.DataFrame,
+    *,
+    include_passthrough: bool = False,
+) -> pd.DataFrame:
+    """
+    Compute quantile coverage metrics grouped by (liquidity_group, horizon).
+
+    Same as compute_quantile_coverage_by_horizon but with additional LG grouping.
+
+    Args:
+        df: Backtest predictions DataFrame with actual_value and quantile columns.
+        include_passthrough: If False (default), exclude Tier-2 passthrough rows.
+
+    Returns:
+        DataFrame with columns:
+            liquidity_group, horizon, n, prob_below_p10, prob_between_p10_p90,
+            prob_above_p90, prob_above_p50, prob_below_p50
+    """
+    df = df.copy()
+
+    # Filter out passthroughs if requested
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    # Filter to rows with valid actual and all quantile predictions
+    mask = (
+        df["actual_value"].notna() &
+        df["y_pred_p10"].notna() &
+        df["y_pred_p50"].notna() &
+        df["y_pred_p90"].notna()
+    )
+    df = df[mask].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    results = []
+
+    for (lg, horizon), group in df.groupby(["liquidity_group", "horizon"], observed=True):
+        actual = group["actual_value"].values
+        p10 = group["y_pred_p10"].values
+        p50 = group["y_pred_p50"].values
+        p90 = group["y_pred_p90"].values
+
+        n = len(group)
+
+        # Coverage indicators
+        below_p10 = actual <= p10
+        above_p90 = actual >= p90
+        between_p10_p90 = (actual > p10) & (actual < p90)
+        above_p50 = actual >= p50
+        below_p50 = actual < p50
+
+        results.append({
+            "liquidity_group": lg,
+            "horizon": horizon,
+            "n": n,
+            "prob_below_p10": float(np.mean(below_p10)),
+            "prob_between_p10_p90": float(np.mean(between_p10_p90)),
+            "prob_above_p90": float(np.mean(above_p90)),
+            "prob_above_p50": float(np.mean(above_p50)),
+            "prob_below_p50": float(np.mean(below_p50)),
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["liquidity_group", "horizon", "n", "prob_below_p10",
+                 "prob_between_p10_p90", "prob_above_p90", "prob_above_p50",
+                 "prob_below_p50"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def compute_pinball_by_horizon(
+    df: pd.DataFrame,
+    *,
+    include_passthrough: bool = False,
+) -> pd.DataFrame:
+    """
+    Compute pinball loss per horizon for P10, P50, P90.
+
+    Pinball loss measures quantile prediction accuracy (lower is better).
+    It penalizes under-predictions and over-predictions asymmetrically
+    based on the quantile level.
+
+    Args:
+        df: Backtest predictions DataFrame with actual_value and quantile columns.
+        include_passthrough: If False (default), exclude Tier-2 passthrough rows.
+
+    Returns:
+        DataFrame with columns:
+            horizon, n, pinball_p10, pinball_p50, pinball_p90
+    """
+    df = df.copy()
+
+    # Filter out passthroughs if requested
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    # Filter to rows with valid actual and all quantile predictions
+    mask = (
+        df["actual_value"].notna() &
+        df["y_pred_p10"].notna() &
+        df["y_pred_p50"].notna() &
+        df["y_pred_p90"].notna()
+    )
+    df = df[mask].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    results = []
+
+    for horizon, group in df.groupby("horizon", observed=True):
+        actual = group["actual_value"]
+        p10 = group["y_pred_p10"]
+        p50 = group["y_pred_p50"]
+        p90 = group["y_pred_p90"]
+
+        n = len(group)
+
+        results.append({
+            "horizon": horizon,
+            "n": n,
+            "pinball_p10": pinball_loss(actual, p10, alpha=0.10),
+            "pinball_p50": pinball_loss(actual, p50, alpha=0.50),
+            "pinball_p90": pinball_loss(actual, p90, alpha=0.90),
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["horizon", "n", "pinball_p10", "pinball_p50", "pinball_p90"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def compute_pinball_by_lg_horizon(
+    df: pd.DataFrame,
+    *,
+    include_passthrough: bool = False,
+) -> pd.DataFrame:
+    """
+    Compute pinball loss per (liquidity_group, horizon) for P10, P50, P90.
+
+    Same as compute_pinball_by_horizon but with additional LG grouping.
+
+    Args:
+        df: Backtest predictions DataFrame with actual_value and quantile columns.
+        include_passthrough: If False (default), exclude Tier-2 passthrough rows.
+
+    Returns:
+        DataFrame with columns:
+            liquidity_group, horizon, n, pinball_p10, pinball_p50, pinball_p90
+    """
+    df = df.copy()
+
+    # Filter out passthroughs if requested
+    if not include_passthrough and "is_pass_through" in df.columns:
+        df = df[df["is_pass_through"] == False].copy()
+
+    # Filter to rows with valid actual and all quantile predictions
+    mask = (
+        df["actual_value"].notna() &
+        df["y_pred_p10"].notna() &
+        df["y_pred_p50"].notna() &
+        df["y_pred_p90"].notna()
+    )
+    df = df[mask].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    results = []
+
+    for (lg, horizon), group in df.groupby(["liquidity_group", "horizon"], observed=True):
+        actual = group["actual_value"]
+        p10 = group["y_pred_p10"]
+        p50 = group["y_pred_p50"]
+        p90 = group["y_pred_p90"]
+
+        n = len(group)
+
+        results.append({
+            "liquidity_group": lg,
+            "horizon": horizon,
+            "n": n,
+            "pinball_p10": pinball_loss(actual, p10, alpha=0.10),
+            "pinball_p50": pinball_loss(actual, p50, alpha=0.50),
+            "pinball_p90": pinball_loss(actual, p90, alpha=0.90),
+        })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["liquidity_group", "horizon", "n", "pinball_p10",
+                 "pinball_p50", "pinball_p90"]
+    return result_df[[c for c in col_order if c in result_df.columns]]

@@ -265,6 +265,12 @@ horizon_profiles = pd.read_parquet(status.metrics_paths["metrics_horizon_profile
 residuals = pd.read_parquet(status.metrics_paths["residual_diagnostics"])
 stability = pd.read_parquet(status.metrics_paths["entity_stability"])
 wins = pd.read_parquet(status.metrics_paths["model_vs_lp_wins"])
+
+# Access probabilistic diagnostics (Task 3.2)
+coverage_h = pd.read_parquet(status.metrics_paths["quantile_coverage_by_horizon"])
+coverage_lg_h = pd.read_parquet(status.metrics_paths["quantile_coverage_by_lg_horizon"])
+pinball_h = pd.read_parquet(status.metrics_paths["pinball_by_horizon"])
+pinball_lg_h = pd.read_parquet(status.metrics_paths["pinball_by_lg_horizon"])
 ```
 
 #### 3. Error Diagnostics (Backtest Only)
@@ -312,6 +318,45 @@ tie_count, ml_win_rate, lp_win_rate, total
 ```
 - Win determined by comparing |ml_error| vs |lp_error| per observation
 - Horizons 5-8 have no LP comparison (LP baseline is NaN)
+
+#### Probabilistic Diagnostics (Quantile-based, Task 3.2)
+
+These diagnostics evaluate the quality of quantile predictions (P10/P50/P90) from Task 3.1.
+They use **Tier-1 rows only** (Tier-2 LP passthrough rows have NaN quantiles).
+
+**Files saved to:** `data/processed/metrics/backtests/{ref_week_start}/diagnostics/`
+
+| File | Grouping | Description |
+|------|----------|-------------|
+| `quantile_coverage_by_horizon.parquet` | horizon | Coverage probabilities per horizon |
+| `quantile_coverage_by_lg_horizon.parquet` | liquidity_group, horizon | Coverage probabilities per LG × horizon |
+| `pinball_by_horizon.parquet` | horizon | Pinball loss for P10/P50/P90 per horizon |
+| `pinball_by_lg_horizon.parquet` | liquidity_group, horizon | Pinball loss per LG × horizon |
+
+**Coverage Metrics Schema:**
+```
+horizon (or liquidity_group, horizon)
+n
+prob_below_p10          # P(actual <= p10) - expect ≈ 0.10
+prob_between_p10_p90    # P(p10 < actual < p90) - expect ≈ 0.80
+prob_above_p90          # P(actual >= p90) - expect ≈ 0.10
+prob_above_p50          # P(actual >= p50) - expect ≈ 0.50
+prob_below_p50          # P(actual < p50) - expect ≈ 0.50
+```
+
+**Pinball Loss Schema:**
+```
+horizon (or liquidity_group, horizon)
+n
+pinball_p10
+pinball_p50
+pinball_p90
+```
+
+**Interpretation:**
+- Coverage metrics show calibration quality: well-calibrated quantiles should have coverage close to expected values
+- Pinball loss measures quantile prediction accuracy (lower is better)
+- These are computed on Tier-1 ML predictions only; Tier-2 rows are excluded because their quantile columns are NaN
 
 ### 2.7 Data Sources & I/O Strategy (Current vs Future)
 
