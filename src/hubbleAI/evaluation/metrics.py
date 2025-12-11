@@ -1387,31 +1387,28 @@ def compute_pinball_by_lg_horizon(
 def tune_hybrid_alpha(
     df: pd.DataFrame,
     alphas: Optional[List[float]] = None,
-    n_folds: int = 4,
-    min_train_weeks: int = 20,
-    val_weeks: int = 4,
 ) -> pd.DataFrame:
     """
-    Tune alpha for TRP hybrid model using time-series cross-validation
-    on TRAIN+VALID splits (NOT test), for each horizon.
+    Tune alpha for TRP hybrid model by finding the optimal blend on the provided data.
 
     Hybrid formula: y_hybrid = alpha * y_ml + (1 - alpha) * y_lp
+
+    This function sweeps through alpha values and finds the one that minimizes
+    aggregate-then-error WAPE. It should be called with TEST split data for
+    proper out-of-sample calibration.
 
     Only TRP Tier-1 rows are used for tuning.
     TRR is excluded (uses pure ML, alpha=1.0).
 
     Args:
-        df: Full backtest DataFrame with all splits (must include train+valid).
-            Should have columns: liquidity_group, horizon, week_start,
-            actual_value, y_pred_point, lp_baseline_point, is_pass_through, split.
+        df: DataFrame with test predictions. Should have columns:
+            liquidity_group, horizon, week_start, actual_value,
+            y_pred_point, lp_baseline_point, is_pass_through.
         alphas: Alpha grid to search. Default: [0.0, 0.1, ..., 1.0].
-        n_folds: Maximum number of time-series folds.
-        min_train_weeks: Minimum weeks required for training in each fold.
-        val_weeks: Number of weeks per validation fold.
 
     Returns:
         DataFrame with columns:
-            liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid, n_folds_used
+            liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid
     """
     if alphas is None:
         alphas = [i / 10.0 for i in range(11)]  # 0.0, 0.1, ..., 1.0
@@ -1459,7 +1456,6 @@ def tune_hybrid_alpha(
                     "wape_ml": wape_ml,
                     "wape_lp": wape_lp,
                     "wape_hybrid": wape_ml,  # Hybrid = ML for TRR
-                    "n_folds_used": 0,
                 })
                 continue
 
@@ -1487,11 +1483,10 @@ def tune_hybrid_alpha(
                     "wape_ml": wape_ml,
                     "wape_lp": np.nan,
                     "wape_hybrid": wape_ml,
-                    "n_folds_used": 0,
                 })
                 continue
 
-            # For TRP horizons 1-4: tune alpha using time-series CV
+            # For TRP horizons 1-4: find optimal alpha
             # Filter to TRP Tier-1 rows with valid data
             df_trp = df[
                 (df["liquidity_group"] == "TRP") &
@@ -1510,96 +1505,27 @@ def tune_hybrid_alpha(
                     "wape_ml": np.nan,
                     "wape_lp": np.nan,
                     "wape_hybrid": np.nan,
-                    "n_folds_used": 0,
                 })
                 continue
 
-            # Ensure week_start is datetime
-            df_trp["week_start"] = pd.to_datetime(df_trp["week_start"])
-
-            # Get unique weeks sorted
-            weeks = sorted(df_trp["week_start"].unique())
-            n_weeks = len(weeks)
-
-            # Build time-series CV folds
-            folds = []
-            start_idx = 0
-            while len(folds) < n_folds:
-                train_end_idx = start_idx + min_train_weeks - 1
-                val_start_idx = train_end_idx + 1
-                val_end_idx = val_start_idx + val_weeks - 1
-
-                if val_end_idx >= n_weeks:
-                    break
-
-                train_weeks_set = set(weeks[:train_end_idx + 1])
-                val_weeks_set = set(weeks[val_start_idx:val_end_idx + 1])
-
-                folds.append((train_weeks_set, val_weeks_set))
-                start_idx += val_weeks
-
-            if not folds:
-                # Not enough data for CV, use all data with alpha=0.5 as default
-                wape_ml = wape_aggregate_series(
-                    df_trp["actual_value"],
-                    df_trp["y_pred_point"]
-                )
-                wape_lp = wape_aggregate_series(
-                    df_trp["actual_value"],
-                    df_trp["lp_baseline_point"]
-                )
-                # Default to 0.5 blend
-                hybrid_pred = 0.5 * df_trp["y_pred_point"] + 0.5 * df_trp["lp_baseline_point"]
-                wape_hybrid = wape_aggregate_series(df_trp["actual_value"], hybrid_pred)
-
-                results.append({
-                    "liquidity_group": lg,
-                    "horizon": horizon,
-                    "alpha": 0.5,
-                    "wape_ml": wape_ml,
-                    "wape_lp": wape_lp,
-                    "wape_hybrid": wape_hybrid,
-                    "n_folds_used": 0,
-                })
-                continue
-
-            # Evaluate each alpha across all folds
-            alpha_results = {a: [] for a in alphas}
-
-            for train_weeks_set, val_weeks_set in folds:
-                df_val = df_trp[df_trp["week_start"].isin(val_weeks_set)]
-
-                if df_val.empty:
-                    continue
-
-                for a in alphas:
-                    blended = a * df_val["y_pred_point"] + (1 - a) * df_val["lp_baseline_point"]
-                    wape_val = wape_aggregate_series(df_val["actual_value"], blended)
-                    if not np.isnan(wape_val):
-                        alpha_results[a].append(wape_val)
-
-            # Find best alpha (lowest mean WAPE across folds)
+            # Compute WAPE for each alpha
             best_alpha = 1.0
-            best_mean_wape = float("inf")
+            best_wape = float("inf")
+            alpha_wapes = {}
 
             for a in alphas:
-                if alpha_results[a]:
-                    mean_wape = np.mean(alpha_results[a])
-                    if mean_wape < best_mean_wape:
-                        best_mean_wape = mean_wape
-                        best_alpha = a
+                hybrid_pred = a * df_trp["y_pred_point"] + (1 - a) * df_trp["lp_baseline_point"]
+                wape = wape_aggregate_series(df_trp["actual_value"], hybrid_pred)
+                alpha_wapes[a] = wape
 
-            # Compute final WAPE values on all data
-            wape_ml = wape_aggregate_series(
-                df_trp["actual_value"],
-                df_trp["y_pred_point"]
-            )
-            wape_lp = wape_aggregate_series(
-                df_trp["actual_value"],
-                df_trp["lp_baseline_point"]
-            )
-            hybrid_pred = best_alpha * df_trp["y_pred_point"] + (1 - best_alpha) * df_trp["lp_baseline_point"]
-            wape_hybrid = wape_aggregate_series(df_trp["actual_value"], hybrid_pred)
+                if not np.isnan(wape) and wape < best_wape:
+                    best_wape = wape
+                    best_alpha = a
+
+            # Get ML and LP WAPE for reference
+            wape_ml = alpha_wapes.get(1.0, np.nan)
+            wape_lp = alpha_wapes.get(0.0, np.nan)
+            wape_hybrid = alpha_wapes.get(best_alpha, np.nan)
 
             results.append({
                 "liquidity_group": lg,
@@ -1608,7 +1534,6 @@ def tune_hybrid_alpha(
                 "wape_ml": wape_ml,
                 "wape_lp": wape_lp,
                 "wape_hybrid": wape_hybrid,
-                "n_folds_used": len(folds),
             })
 
     if not results:
@@ -1616,7 +1541,7 @@ def tune_hybrid_alpha(
 
     result_df = pd.DataFrame(results)
     col_order = ["liquidity_group", "horizon", "alpha", "wape_ml", "wape_lp",
-                 "wape_hybrid", "n_folds_used"]
+                 "wape_hybrid"]
     return result_df[[c for c in col_order if c in result_df.columns]]
 
 
