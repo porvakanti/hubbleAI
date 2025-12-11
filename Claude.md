@@ -358,7 +358,58 @@ pinball_p90
 - Pinball loss measures quantile prediction accuracy (lower is better)
 - These are computed on Tier-1 ML predictions only; Tier-2 rows are excluded because their quantile columns are NaN
 
-### 2.7 Data Sources & I/O Strategy (Current vs Future)
+### 2.7 Hybrid ML+LP Forecasting (TRP Only, Task 4.1)
+
+For TRP, we use a hybrid model that blends ML and LP predictions:
+
+```
+y_hybrid = α * y_ml + (1 - α) * y_lp
+```
+
+**Scope:**
+- TRP horizons 1-4: α tuned via time-series CV on train+valid splits
+- TRP horizons 5-8: α = 1.0 (no LP available, pure ML)
+- TRR: α = 1.0 (pure ML, no hybrid needed - ML performs well)
+- Tier-2 passthrough rows: y_hybrid = y_pred_point = LP
+
+**Alpha tuning:**
+- Uses time-series cross-validation on train+valid splits (NOT test) to avoid overfitting
+- Minimizes aggregate-then-error WAPE (Treasury-aligned)
+- Alpha grid: [0.0, 0.1, 0.2, ..., 1.0] (11 values)
+- Rolling folds: train on N weeks, validate on next K weeks, slide forward
+
+**Output columns:**
+- `y_pred_point`: Pure ML point prediction
+- `y_pred_hybrid`: Blended prediction (ML+LP for TRP H1-4, else = y_pred_point)
+- `lp_baseline_point`: LP baseline (backtest only, for reference)
+- Quantiles (`y_pred_p10/p50/p90`): Remain pure ML (no blending)
+
+**Alpha table:** Saved to `metrics/backtests/{ref_week_start}/alpha_by_lg_horizon.parquet`
+
+Schema:
+```
+liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid, n_folds_used
+```
+
+**Forward mode:** Loads alpha from most recent backtest run. If no backtest exists, defaults to α=1.0 (pure ML).
+
+**Programmatic access:**
+```python
+from hubbleAI.pipeline import run_forecast
+import pandas as pd
+
+# Backtest - tune alpha and get hybrid predictions
+status = run_forecast(mode="backtest", trigger_source="notebook")
+alpha_df = pd.read_parquet(status.metrics_paths["alpha_by_lg_horizon"])
+print(alpha_df[alpha_df.liquidity_group == "TRP"])  # See TRP alpha values
+
+# Forward - uses tuned alpha for hybrid
+status = run_forecast(mode="forward", trigger_source="notebook")
+fwd = pd.read_parquet(status.output_paths["forecasts"])
+print(fwd[["liquidity_group", "horizon", "y_pred_point", "y_pred_hybrid"]].head())
+```
+
+### 2.8 Data Sources & I/O Strategy (Current vs Future)
 
   Current phase (what you should implement **now**):
 
