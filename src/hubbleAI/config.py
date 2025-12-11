@@ -180,6 +180,7 @@ FORECAST_OUTPUT_COLS: List[str] = [
     "horizon",
     "actual_value",
     "y_pred_point",
+    "y_pred_hybrid",  # Hybrid ML+LP for TRP H1-4, else = y_pred_point
     "y_pred_p10",
     "y_pred_p50",
     "y_pred_p90",
@@ -197,6 +198,7 @@ BACKTEST_OUTPUT_COLS: List[str] = [
     "actual_value",
     "y_pred_point",
     "lp_baseline_point",  # LP forecast for h=1-4, NaN for h>=5
+    "y_pred_hybrid",  # Hybrid ML+LP for TRP H1-4, else = y_pred_point
     "y_pred_p10",
     "y_pred_p50",
     "y_pred_p90",

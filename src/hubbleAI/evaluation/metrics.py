@@ -14,7 +14,7 @@ Treasury cares about the total position, not individual entity errors.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -1377,3 +1377,262 @@ def compute_pinball_by_lg_horizon(
     col_order = ["liquidity_group", "horizon", "n", "pinball_p10",
                  "pinball_p50", "pinball_p90"]
     return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+# ---------------------------------------------------------------------------
+# Hybrid ML+LP Alpha Tuning (Task 4.1)
+# ---------------------------------------------------------------------------
+
+
+def tune_hybrid_alpha(
+    df: pd.DataFrame,
+    alphas: Optional[List[float]] = None,
+    n_folds: int = 4,
+    min_train_weeks: int = 20,
+    val_weeks: int = 4,
+) -> pd.DataFrame:
+    """
+    Tune alpha for TRP hybrid model using time-series cross-validation
+    on TRAIN+VALID splits (NOT test), for each horizon.
+
+    Hybrid formula: y_hybrid = alpha * y_ml + (1 - alpha) * y_lp
+
+    Only TRP Tier-1 rows are used for tuning.
+    TRR is excluded (uses pure ML, alpha=1.0).
+
+    Args:
+        df: Full backtest DataFrame with all splits (must include train+valid).
+            Should have columns: liquidity_group, horizon, week_start,
+            actual_value, y_pred_point, lp_baseline_point, is_pass_through, split.
+        alphas: Alpha grid to search. Default: [0.0, 0.1, ..., 1.0].
+        n_folds: Maximum number of time-series folds.
+        min_train_weeks: Minimum weeks required for training in each fold.
+        val_weeks: Number of weeks per validation fold.
+
+    Returns:
+        DataFrame with columns:
+            liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid, n_folds_used
+    """
+    if alphas is None:
+        alphas = [i / 10.0 for i in range(11)]  # 0.0, 0.1, ..., 1.0
+
+    results = []
+
+    # Process both LGs and all horizons
+    for lg in ["TRR", "TRP"]:
+        for horizon in range(1, 9):
+            # For TRR: always use pure ML (alpha=1.0)
+            if lg == "TRR":
+                # Compute ML WAPE for reference
+                df_lg_h = df[
+                    (df["liquidity_group"] == lg) &
+                    (df["horizon"] == horizon) &
+                    (df["is_pass_through"] == False) &
+                    (df["actual_value"].notna()) &
+                    (df["y_pred_point"].notna())
+                ]
+                if len(df_lg_h) > 0:
+                    wape_ml = wape_aggregate_series(
+                        df_lg_h["actual_value"],
+                        df_lg_h["y_pred_point"]
+                    )
+                    # LP WAPE for horizons 1-4
+                    if horizon <= 4 and "lp_baseline_point" in df_lg_h.columns:
+                        lp_mask = df_lg_h["lp_baseline_point"].notna()
+                        if lp_mask.sum() > 0:
+                            wape_lp = wape_aggregate_series(
+                                df_lg_h.loc[lp_mask, "actual_value"],
+                                df_lg_h.loc[lp_mask, "lp_baseline_point"]
+                            )
+                        else:
+                            wape_lp = np.nan
+                    else:
+                        wape_lp = np.nan
+                else:
+                    wape_ml = np.nan
+                    wape_lp = np.nan
+
+                results.append({
+                    "liquidity_group": lg,
+                    "horizon": horizon,
+                    "alpha": 1.0,
+                    "wape_ml": wape_ml,
+                    "wape_lp": wape_lp,
+                    "wape_hybrid": wape_ml,  # Hybrid = ML for TRR
+                    "n_folds_used": 0,
+                })
+                continue
+
+            # For TRP horizons 5-8: no LP, use pure ML
+            if horizon > 4:
+                df_lg_h = df[
+                    (df["liquidity_group"] == lg) &
+                    (df["horizon"] == horizon) &
+                    (df["is_pass_through"] == False) &
+                    (df["actual_value"].notna()) &
+                    (df["y_pred_point"].notna())
+                ]
+                if len(df_lg_h) > 0:
+                    wape_ml = wape_aggregate_series(
+                        df_lg_h["actual_value"],
+                        df_lg_h["y_pred_point"]
+                    )
+                else:
+                    wape_ml = np.nan
+
+                results.append({
+                    "liquidity_group": lg,
+                    "horizon": horizon,
+                    "alpha": 1.0,
+                    "wape_ml": wape_ml,
+                    "wape_lp": np.nan,
+                    "wape_hybrid": wape_ml,
+                    "n_folds_used": 0,
+                })
+                continue
+
+            # For TRP horizons 1-4: tune alpha using time-series CV
+            # Filter to TRP Tier-1 rows with valid data
+            df_trp = df[
+                (df["liquidity_group"] == "TRP") &
+                (df["horizon"] == horizon) &
+                (df["is_pass_through"] == False) &
+                (df["actual_value"].notna()) &
+                (df["y_pred_point"].notna()) &
+                (df["lp_baseline_point"].notna())
+            ].copy()
+
+            if df_trp.empty:
+                results.append({
+                    "liquidity_group": lg,
+                    "horizon": horizon,
+                    "alpha": 1.0,
+                    "wape_ml": np.nan,
+                    "wape_lp": np.nan,
+                    "wape_hybrid": np.nan,
+                    "n_folds_used": 0,
+                })
+                continue
+
+            # Ensure week_start is datetime
+            df_trp["week_start"] = pd.to_datetime(df_trp["week_start"])
+
+            # Get unique weeks sorted
+            weeks = sorted(df_trp["week_start"].unique())
+            n_weeks = len(weeks)
+
+            # Build time-series CV folds
+            folds = []
+            start_idx = 0
+            while len(folds) < n_folds:
+                train_end_idx = start_idx + min_train_weeks - 1
+                val_start_idx = train_end_idx + 1
+                val_end_idx = val_start_idx + val_weeks - 1
+
+                if val_end_idx >= n_weeks:
+                    break
+
+                train_weeks_set = set(weeks[:train_end_idx + 1])
+                val_weeks_set = set(weeks[val_start_idx:val_end_idx + 1])
+
+                folds.append((train_weeks_set, val_weeks_set))
+                start_idx += val_weeks
+
+            if not folds:
+                # Not enough data for CV, use all data with alpha=0.5 as default
+                wape_ml = wape_aggregate_series(
+                    df_trp["actual_value"],
+                    df_trp["y_pred_point"]
+                )
+                wape_lp = wape_aggregate_series(
+                    df_trp["actual_value"],
+                    df_trp["lp_baseline_point"]
+                )
+                # Default to 0.5 blend
+                hybrid_pred = 0.5 * df_trp["y_pred_point"] + 0.5 * df_trp["lp_baseline_point"]
+                wape_hybrid = wape_aggregate_series(df_trp["actual_value"], hybrid_pred)
+
+                results.append({
+                    "liquidity_group": lg,
+                    "horizon": horizon,
+                    "alpha": 0.5,
+                    "wape_ml": wape_ml,
+                    "wape_lp": wape_lp,
+                    "wape_hybrid": wape_hybrid,
+                    "n_folds_used": 0,
+                })
+                continue
+
+            # Evaluate each alpha across all folds
+            alpha_results = {a: [] for a in alphas}
+
+            for train_weeks_set, val_weeks_set in folds:
+                df_val = df_trp[df_trp["week_start"].isin(val_weeks_set)]
+
+                if df_val.empty:
+                    continue
+
+                for a in alphas:
+                    blended = a * df_val["y_pred_point"] + (1 - a) * df_val["lp_baseline_point"]
+                    wape_val = wape_aggregate_series(df_val["actual_value"], blended)
+                    if not np.isnan(wape_val):
+                        alpha_results[a].append(wape_val)
+
+            # Find best alpha (lowest mean WAPE across folds)
+            best_alpha = 1.0
+            best_mean_wape = float("inf")
+
+            for a in alphas:
+                if alpha_results[a]:
+                    mean_wape = np.mean(alpha_results[a])
+                    if mean_wape < best_mean_wape:
+                        best_mean_wape = mean_wape
+                        best_alpha = a
+
+            # Compute final WAPE values on all data
+            wape_ml = wape_aggregate_series(
+                df_trp["actual_value"],
+                df_trp["y_pred_point"]
+            )
+            wape_lp = wape_aggregate_series(
+                df_trp["actual_value"],
+                df_trp["lp_baseline_point"]
+            )
+            hybrid_pred = best_alpha * df_trp["y_pred_point"] + (1 - best_alpha) * df_trp["lp_baseline_point"]
+            wape_hybrid = wape_aggregate_series(df_trp["actual_value"], hybrid_pred)
+
+            results.append({
+                "liquidity_group": lg,
+                "horizon": horizon,
+                "alpha": best_alpha,
+                "wape_ml": wape_ml,
+                "wape_lp": wape_lp,
+                "wape_hybrid": wape_hybrid,
+                "n_folds_used": len(folds),
+            })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["liquidity_group", "horizon", "alpha", "wape_ml", "wape_lp",
+                 "wape_hybrid", "n_folds_used"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def get_alpha_mapping(alpha_df: pd.DataFrame) -> Dict[Tuple[str, int], float]:
+    """
+    Convert alpha tuning DataFrame to dict: {(liquidity_group, horizon): alpha}.
+
+    Args:
+        alpha_df: DataFrame from tune_hybrid_alpha() with columns
+            liquidity_group, horizon, alpha.
+
+    Returns:
+        Dict mapping (liquidity_group, horizon) to alpha value.
+    """
+    mapping = {}
+    for _, row in alpha_df.iterrows():
+        key = (row["liquidity_group"], int(row["horizon"]))
+        mapping[key] = float(row["alpha"])
+    return mapping

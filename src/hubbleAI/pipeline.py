@@ -57,6 +57,51 @@ logger = logging.getLogger(__name__)
 RunStatus = Literal["success", "data_missing", "skipped", "error"]
 
 
+def load_latest_alpha_mapping() -> Dict[Tuple[str, int], float]:
+    """
+    Load the most recent alpha mapping from backtest metrics.
+
+    Scans BACKTEST_METRICS_DIR for the latest ref_week_start folder
+    containing alpha_by_lg_horizon.parquet.
+
+    Returns:
+        Dict mapping (liquidity_group, horizon) to alpha.
+        Returns empty dict if no alpha file exists (defaults will be used).
+    """
+    from hubbleAI.evaluation.metrics import get_alpha_mapping
+
+    if not BACKTEST_METRICS_DIR.exists():
+        logger.warning("No backtest metrics directory found. Using default alpha=1.0.")
+        return {}
+
+    # Find all subdirectories (ref_week_start folders)
+    subdirs = [d for d in BACKTEST_METRICS_DIR.iterdir() if d.is_dir()]
+
+    if not subdirs:
+        logger.warning("No backtest runs found. Using default alpha=1.0.")
+        return {}
+
+    # Sort by name (ISO date format sorts chronologically)
+    subdirs_sorted = sorted(subdirs, key=lambda d: d.name, reverse=True)
+
+    # Find the latest folder with alpha file
+    for subdir in subdirs_sorted:
+        alpha_path = subdir / "alpha_by_lg_horizon.parquet"
+        if alpha_path.exists():
+            try:
+                import pandas as pd
+                alpha_df = pd.read_parquet(alpha_path)
+                mapping = get_alpha_mapping(alpha_df)
+                logger.info(f"Loaded alpha mapping from {alpha_path}")
+                return mapping
+            except Exception as e:
+                logger.warning(f"Error loading alpha from {alpha_path}: {e}")
+                continue
+
+    logger.warning("No alpha file found in any backtest run. Using default alpha=1.0.")
+    return {}
+
+
 ForecastMode = Literal["forward", "backtest"]
 
 
@@ -269,6 +314,14 @@ def _build_and_run_models_forward(
 
     all_forecasts = []
 
+    # Load alpha mapping for hybrid predictions (from latest backtest)
+    alpha_mapping = load_latest_alpha_mapping()
+    if alpha_mapping:
+        logger.info(f"Loaded alpha mapping: TRP H1={alpha_mapping.get(('TRP', 1), 1.0):.1f}, "
+                    f"H2={alpha_mapping.get(('TRP', 2), 1.0):.1f}, "
+                    f"H3={alpha_mapping.get(('TRP', 3), 1.0):.1f}, "
+                    f"H4={alpha_mapping.get(('TRP', 4), 1.0):.1f}")
+
     # Assign split for training (use all data for training in forward mode)
     tier1_df = assign_split(tier1_df)
 
@@ -372,6 +425,26 @@ def _build_and_run_models_forward(
                 output["actual_value"] = np.nan
 
                 output["y_pred_point"] = predictions
+
+                # Get LP values for hybrid computation (h=1-4 only)
+                lp_col = LP_FORECAST_COLS.get(horizon)
+                if lp_col is not None and lp_col in df_ref.columns:
+                    lp_values = df_ref[lp_col].values
+                else:
+                    lp_values = np.full(len(output), np.nan)
+
+                # Compute hybrid: y_hybrid = alpha * y_ml + (1 - alpha) * y_lp
+                alpha = alpha_mapping.get((lg, horizon), 1.0)
+                if alpha == 1.0 or np.all(np.isnan(lp_values)):
+                    # Pure ML
+                    output["y_pred_hybrid"] = predictions
+                else:
+                    # Blend ML and LP
+                    hybrid = alpha * predictions + (1 - alpha) * lp_values
+                    # If LP is NaN for specific rows, fall back to ML
+                    hybrid = np.where(np.isnan(lp_values), predictions, hybrid)
+                    output["y_pred_hybrid"] = hybrid
+
                 output["y_pred_p10"] = q10
                 output["y_pred_p50"] = q50
                 output["y_pred_p90"] = q90
@@ -443,9 +516,12 @@ def _build_and_run_models_backtest(
         compute_metrics_by_entity,
         compute_metrics_net,
         compute_metrics_net_entity,
+        tune_hybrid_alpha,
+        get_alpha_mapping,
     )
 
-    all_forecasts = []
+    all_forecasts = []  # Test split predictions
+    trainval_forecasts = []  # Train+valid predictions for alpha tuning
 
     # Assign 85/10/5 split
     tier1_df = _assign_backtest_split(tier1_df, train_ratio=0.85, valid_ratio=0.10)
@@ -520,7 +596,7 @@ def _build_and_run_models_backtest(
                     df_trainval, feature_cols, target_col, alpha=0.90
                 )
 
-                # For backtest mode: predict ONLY for test split (last 5%)
+                # For backtest mode: predict for test split (last 5%)
                 df_test = df_lg[df_lg["split"] == "test"].copy()
 
                 if df_test.empty:
@@ -529,15 +605,15 @@ def _build_and_run_models_backtest(
                     )
                     continue
 
-                # Point predictions
+                # Point predictions for test
                 predictions = predict_lgbm(model, df_test, feature_cols)
 
-                # Quantile predictions
+                # Quantile predictions for test
                 q10 = predict_lgbm(model_q10, df_test, feature_cols)
                 q50 = predict_lgbm(model_q50, df_test, feature_cols)
                 q90 = predict_lgbm(model_q90, df_test, feature_cols)
 
-                # Build output DataFrame
+                # Build output DataFrame for test
                 output = df_test[
                     ["entity", "liquidity_group", "week_start"]
                 ].copy()
@@ -568,6 +644,26 @@ def _build_and_run_models_backtest(
 
                 all_forecasts.append(output)
 
+                # Also generate predictions for train+valid (for alpha tuning)
+                # Only need point predictions and LP baseline for alpha tuning
+                trainval_preds = predict_lgbm(model, df_trainval, feature_cols)
+
+                trainval_output = df_trainval[
+                    ["entity", "liquidity_group", "week_start"]
+                ].copy()
+                trainval_output["horizon"] = horizon
+                trainval_output["actual_value"] = df_trainval[target_col].values
+                trainval_output["y_pred_point"] = trainval_preds
+                trainval_output["is_pass_through"] = False
+
+                # Add LP baseline for alpha tuning
+                if lp_col is not None and lp_col in df_trainval.columns:
+                    trainval_output["lp_baseline_point"] = df_trainval[lp_col].values
+                else:
+                    trainval_output["lp_baseline_point"] = np.nan
+
+                trainval_forecasts.append(trainval_output)
+
             except Exception as e:
                 logger.error(f"Error training {lg} H{horizon}: {e}")
                 continue
@@ -577,17 +673,63 @@ def _build_and_run_models_backtest(
     if not tier2_forecasts.empty:
         all_forecasts.append(tier2_forecasts)
 
-    # Combine all forecasts
+    # Combine all test forecasts
     if all_forecasts:
         forecasts_df = pd.concat(all_forecasts, ignore_index=True)
     else:
         forecasts_df = pd.DataFrame(columns=BACKTEST_OUTPUT_COLS)
 
-    # Ensure correct output columns for backtest (includes lp_baseline_point)
+    # Combine train+valid forecasts for alpha tuning
+    if trainval_forecasts:
+        trainval_df = pd.concat(trainval_forecasts, ignore_index=True)
+    else:
+        trainval_df = pd.DataFrame()
+
+    # Tune hybrid alpha using train+valid predictions
+    logger.info("Tuning hybrid alpha for TRP using time-series CV...")
+    if not trainval_df.empty:
+        alpha_df = tune_hybrid_alpha(trainval_df)
+        alpha_mapping = get_alpha_mapping(alpha_df)
+        logger.info(f"Alpha tuning complete. TRP alphas: "
+                    f"H1={alpha_mapping.get(('TRP', 1), 1.0):.1f}, "
+                    f"H2={alpha_mapping.get(('TRP', 2), 1.0):.1f}, "
+                    f"H3={alpha_mapping.get(('TRP', 3), 1.0):.1f}, "
+                    f"H4={alpha_mapping.get(('TRP', 4), 1.0):.1f}")
+    else:
+        alpha_df = pd.DataFrame()
+        alpha_mapping = {}
+        logger.warning("No train+valid data for alpha tuning, using default alpha=1.0")
+
+    # Add y_pred_hybrid column to test forecasts
+    def compute_hybrid(row):
+        lg = row["liquidity_group"]
+        h = row["horizon"]
+        alpha = alpha_mapping.get((lg, h), 1.0)
+
+        y_ml = row["y_pred_point"]
+        y_lp = row["lp_baseline_point"]
+
+        # If LP is missing (NaN) or alpha=1.0, use pure ML
+        if pd.isna(y_lp) or alpha == 1.0:
+            return y_ml
+        # If ML is missing (shouldn't happen but be safe)
+        if pd.isna(y_ml):
+            return y_lp
+        # Blend
+        return alpha * y_ml + (1 - alpha) * y_lp
+
+    if not forecasts_df.empty:
+        forecasts_df["y_pred_hybrid"] = forecasts_df.apply(compute_hybrid, axis=1)
+    else:
+        forecasts_df["y_pred_hybrid"] = np.nan
+
+    # Ensure correct output columns for backtest (includes lp_baseline_point and y_pred_hybrid)
     forecasts_df = forecasts_df[BACKTEST_OUTPUT_COLS]
 
-    # Compute and save metrics at 4 aggregation levels
-    metrics_paths = _compute_and_save_backtest_metrics(forecasts_df, ref_week_start)
+    # Compute and save metrics at 4 aggregation levels (includes alpha table)
+    metrics_paths = _compute_and_save_backtest_metrics(
+        forecasts_df, ref_week_start, alpha_df=alpha_df
+    )
 
     return forecasts_df, metrics_paths
 
@@ -595,6 +737,7 @@ def _build_and_run_models_backtest(
 def _compute_and_save_backtest_metrics(
     forecasts_df: pd.DataFrame,
     ref_week_start: date,
+    alpha_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, str]:
     """
     Compute and save backtest metrics at 4 aggregation levels.
@@ -610,6 +753,7 @@ def _compute_and_save_backtest_metrics(
     Args:
         forecasts_df: Backtest predictions DataFrame with lp_baseline_point.
         ref_week_start: Reference week for output directory naming.
+        alpha_df: Optional DataFrame with tuned alpha values per LG×horizon.
 
     Returns:
         Dict mapping metric file names to their paths.
@@ -692,7 +836,17 @@ def _compute_and_save_backtest_metrics(
     except Exception as e:
         logger.error(f"Error computing Net-Entity-level metrics: {e}")
 
-    # 5. Compute and save diagnostics (always uses full dataset)
+    # 5. Save alpha tuning table (Task 4.1)
+    if alpha_df is not None and not alpha_df.empty:
+        try:
+            alpha_path = metrics_dir / "alpha_by_lg_horizon.parquet"
+            alpha_df.to_parquet(alpha_path, index=False)
+            metrics_paths["alpha_by_lg_horizon"] = str(alpha_path)
+            logger.info(f"Alpha tuning table saved: {len(alpha_df)} rows")
+        except Exception as e:
+            logger.error(f"Error saving alpha tuning table: {e}")
+
+    # 6. Compute and save diagnostics (always uses full dataset)
     diagnostic_paths = _compute_and_save_diagnostics(forecasts_df, ref_week_start)
     metrics_paths.update(diagnostic_paths)
 
@@ -889,6 +1043,7 @@ def _build_tier2_passthrough_forward(
         output["actual_value"] = np.nan
 
         output["y_pred_point"] = df_h[lp_col].values
+        output["y_pred_hybrid"] = df_h[lp_col].values  # Tier-2: hybrid = LP
         output["y_pred_p10"] = np.nan
         output["y_pred_p50"] = np.nan
         output["y_pred_p90"] = np.nan
@@ -965,6 +1120,8 @@ def _build_tier2_passthrough_backtest(
         output["y_pred_point"] = df_h[lp_col].values
         # Also set lp_baseline_point for consistency in metrics
         output["lp_baseline_point"] = df_h[lp_col].values
+        # Tier-2: hybrid = LP (will be overwritten by compute_hybrid but set for safety)
+        output["y_pred_hybrid"] = df_h[lp_col].values
 
         output["y_pred_p10"] = np.nan
         output["y_pred_p50"] = np.nan
