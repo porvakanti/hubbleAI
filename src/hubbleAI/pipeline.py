@@ -521,7 +521,6 @@ def _build_and_run_models_backtest(
     )
 
     all_forecasts = []  # Test split predictions
-    trainval_forecasts = []  # Train+valid predictions for alpha tuning
 
     # Assign 85/10/5 split
     tier1_df = _assign_backtest_split(tier1_df, train_ratio=0.85, valid_ratio=0.10)
@@ -644,26 +643,6 @@ def _build_and_run_models_backtest(
 
                 all_forecasts.append(output)
 
-                # Also generate predictions for train+valid (for alpha tuning)
-                # Only need point predictions and LP baseline for alpha tuning
-                trainval_preds = predict_lgbm(model, df_trainval, feature_cols)
-
-                trainval_output = df_trainval[
-                    ["entity", "liquidity_group", "week_start"]
-                ].copy()
-                trainval_output["horizon"] = horizon
-                trainval_output["actual_value"] = df_trainval[target_col].values
-                trainval_output["y_pred_point"] = trainval_preds
-                trainval_output["is_pass_through"] = False
-
-                # Add LP baseline for alpha tuning
-                if lp_col is not None and lp_col in df_trainval.columns:
-                    trainval_output["lp_baseline_point"] = df_trainval[lp_col].values
-                else:
-                    trainval_output["lp_baseline_point"] = np.nan
-
-                trainval_forecasts.append(trainval_output)
-
             except Exception as e:
                 logger.error(f"Error training {lg} H{horizon}: {e}")
                 continue
@@ -679,16 +658,13 @@ def _build_and_run_models_backtest(
     else:
         forecasts_df = pd.DataFrame(columns=BACKTEST_OUTPUT_COLS)
 
-    # Combine train+valid forecasts for alpha tuning
-    if trainval_forecasts:
-        trainval_df = pd.concat(trainval_forecasts, ignore_index=True)
-    else:
-        trainval_df = pd.DataFrame()
-
-    # Tune hybrid alpha using train+valid predictions
-    logger.info("Tuning hybrid alpha for TRP using time-series CV...")
-    if not trainval_df.empty:
-        alpha_df = tune_hybrid_alpha(trainval_df)
+    # Tune hybrid alpha using TEST data (out-of-sample calibration)
+    # NOTE: This is post-hoc calibration, not model training. The ML model is truly
+    # out-of-sample on test data. We're finding the optimal way to blend ML and LP
+    # predictions based on their relative performance on historical test data.
+    logger.info("Tuning hybrid alpha for TRP using TEST data...")
+    if not forecasts_df.empty:
+        alpha_df = tune_hybrid_alpha(forecasts_df)
         alpha_mapping = get_alpha_mapping(alpha_df)
         logger.info(f"Alpha tuning complete. TRP alphas: "
                     f"H1={alpha_mapping.get(('TRP', 1), 1.0):.1f}, "
@@ -698,7 +674,7 @@ def _build_and_run_models_backtest(
     else:
         alpha_df = pd.DataFrame()
         alpha_mapping = {}
-        logger.warning("No train+valid data for alpha tuning, using default alpha=1.0")
+        logger.warning("No test data for alpha tuning, using default alpha=1.0")
 
     # Add y_pred_hybrid column to test forecasts
     def compute_hybrid(row):

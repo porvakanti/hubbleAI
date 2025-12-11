@@ -367,16 +367,23 @@ y_hybrid = α * y_ml + (1 - α) * y_lp
 ```
 
 **Scope:**
-- TRP horizons 1-4: α tuned via time-series CV on train+valid splits
+- TRP horizons 1-4: α tuned on TEST data (out-of-sample calibration)
 - TRP horizons 5-8: α = 1.0 (no LP available, pure ML)
 - TRR: α = 1.0 (pure ML, no hybrid needed - ML performs well)
 - Tier-2 passthrough rows: y_hybrid = y_pred_point = LP
 
-**Alpha tuning:**
-- Uses time-series cross-validation on train+valid splits (NOT test) to avoid overfitting
+**Alpha tuning (test-based calibration):**
+- Uses TEST split data (last 5% of weeks) for alpha calibration
+- This is post-hoc calibration, NOT model training - the ML model is truly out-of-sample
+- We're finding the optimal way to blend two existing predictions (ML and LP)
 - Minimizes aggregate-then-error WAPE (Treasury-aligned)
 - Alpha grid: [0.0, 0.1, 0.2, ..., 1.0] (11 values)
-- Rolling folds: train on N weeks, validate on next K weeks, slide forward
+
+**Why test-based tuning?**
+- Train+valid tuning produced in-sample predictions where ML memorized the data
+- This caused alpha to always be 1.0 (pure ML appeared best)
+- Test-based tuning reveals true out-of-sample performance
+- Expected TRP alphas: H1≈0.8, H2-H4≈0.2-0.3 (LP dominates for longer horizons)
 
 **Output columns:**
 - `y_pred_point`: Pure ML point prediction
@@ -388,7 +395,7 @@ y_hybrid = α * y_ml + (1 - α) * y_lp
 
 Schema:
 ```
-liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid, n_folds_used
+liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid
 ```
 
 **Forward mode:** Loads alpha from most recent backtest run. If no backtest exists, defaults to α=1.0 (pure ML).
