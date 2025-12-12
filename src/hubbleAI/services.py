@@ -17,10 +17,10 @@ import pandas as pd
 
 from hubbleAI.config import (
     FORECASTS_DIR,
-    BACKTEST_DIR,
+    BACKTESTS_DIR,
     BACKTEST_METRICS_DIR,
     RUN_STATUS_DIR,
-    RAW_DATA_DIR,
+    DATA_RAW_DIR,
 )
 
 
@@ -187,7 +187,7 @@ def load_latest_backtest_metrics() -> MetricsResult:
             result.metrics_net = pd.read_parquet(net_path)
 
         # Load backtest predictions
-        backtest_dir = BACKTEST_DIR / ref_date
+        backtest_dir = BACKTESTS_DIR / ref_date
         backtest_path = backtest_dir / "backtest_predictions.parquet"
         if backtest_path.exists():
             result.backtest_predictions = pd.read_parquet(backtest_path)
@@ -214,7 +214,7 @@ def check_raw_data_freshness() -> Dict[str, Any]:
     ]
 
     for name, filename in expected_files:
-        filepath = RAW_DATA_DIR / filename
+        filepath = DATA_RAW_DIR / filename
         if filepath.exists():
             mtime = datetime.fromtimestamp(filepath.stat().st_mtime)
             age_days = (datetime.now() - mtime).days
@@ -264,8 +264,8 @@ def check_pipeline_status() -> Dict[str, Any]:
         status["has_forecasts"] = len(subdirs) > 0
 
     # Check backtest
-    if BACKTEST_DIR.exists():
-        subdirs = [d for d in BACKTEST_DIR.iterdir() if d.is_dir()]
+    if BACKTESTS_DIR.exists():
+        subdirs = [d for d in BACKTESTS_DIR.iterdir() if d.is_dir()]
         status["has_backtest"] = len(subdirs) > 0
 
     # Check metrics
