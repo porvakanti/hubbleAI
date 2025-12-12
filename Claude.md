@@ -54,8 +54,42 @@ hubbleAI/
 Important:
 
 - The Python package name is **`hubbleAI`** (camel case), not `hubble_ai`.
-- The **truth for current modeling logic is `notebooks/TCF_V2.ipynb`**.  
+- The **truth for current modeling logic is `notebooks/TCF_V2.ipynb`**.
   Do **not** ignore or overwrite it.
+
+---
+
+## 1.1 Task Status
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.1 | Backtest metrics (LG, Entity, Net levels) | ✅ Complete |
+| 2.2 | Backtest diagnostics (horizon profiles, residuals, stability, ML vs LP wins) | ✅ Complete |
+| 3.1 | Quantile predictions (P10/P50/P90) | ✅ Complete |
+| 3.2 | Probabilistic diagnostics (coverage, pinball loss) | ✅ Complete |
+| 4.1 | Hybrid ML+LP model with weekly win rate alpha tuning | ✅ Complete |
+| - | Unit tests for metrics module (23 tests) | ✅ Complete |
+| 5.1 | Streamlit UI - Page 1 (Latest Forecast) | 🔄 Pending |
+| 5.2 | Streamlit UI - Page 2 (Performance Dashboard) | 🔄 Pending |
+| 5.3 | Streamlit UI - Page 3 (Scenario Planner) | 🔄 Pending |
+
+---
+
+## 1.2 Current Performance Summary (as of 2025-12-12)
+
+**Hybrid Model (α=0.1) Weekly Win Rate vs LP (TRP only):**
+
+| Horizon | Hybrid Wins | Total Weeks | Win Rate |
+|---------|-------------|-------------|----------|
+| H1 | 16 | 28 | **57%** |
+| H2 | 20 | 27 | **74%** |
+| H3 | 18 | 26 | **69%** |
+| H4 | 20 | 25 | **80%** |
+
+- **TRR**: Uses pure ML (α=1.0) - ML consistently outperforms LP
+- **TRP H5-H8**: Uses pure ML (no LP baseline available)
+
+These results are from the TEST split (last 5% of weeks in backtest mode).
 
 ---
 
@@ -481,6 +515,30 @@ Metrics to support in `evaluation/metrics.py`:
 
 - Compute and store these metrics over time.
 - Produce tables/frames ready for the UI (Streamlit dashboards).
+
+---
+
+## 3.1 Testing
+
+Unit tests are located in `tests/` and use pytest.
+
+**Run all tests:**
+```bash
+python -m pytest tests/ -v
+```
+
+**Test coverage:**
+- `test_metrics.py` - Tests for `evaluation/metrics.py`:
+  - WAPE calculations (standard and aggregate)
+  - `tune_hybrid_alpha()` function
+  - `get_alpha_mapping()` function
+  - `compute_weekly_hybrid_breakdown()` function
+  - Integration tests for full workflow
+
+**Adding new tests:**
+- Create test files as `tests/test_<module>.py`
+- Use fixtures in `tests/conftest.py` for shared test data
+- Follow existing patterns for test class organization
 
 ---
 
