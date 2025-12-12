@@ -132,7 +132,9 @@ The output schema for forecasts should include at least:
 - `target_week_start`
 - `horizon`
 - `actual_value` (Backtest mode: actual observed weekly amount for the target_week_start; Forward mode: NaN placeholder (future actual unknown))
-- `y_pred_point`
+- `y_pred_point` (pure ML prediction)
+- `y_pred_hybrid` (blended ML+LP for TRP H1-4, else = y_pred_point)
+- `lp_baseline_point` (LP baseline, backtest only)
 - `y_pred_p10`
 - `y_pred_p50`
 - `y_pred_p90`
