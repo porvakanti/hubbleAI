@@ -1389,13 +1389,14 @@ def tune_hybrid_alpha(
     alphas: Optional[List[float]] = None,
 ) -> pd.DataFrame:
     """
-    Tune alpha for TRP hybrid model by finding the optimal blend on the provided data.
+    Tune alpha for TRP hybrid model to maximize weekly win rate vs LP.
 
     Hybrid formula: y_hybrid = alpha * y_ml + (1 - alpha) * y_lp
 
-    This function sweeps through alpha values and finds the one that minimizes
-    aggregate-then-error WAPE. It should be called with TEST split data for
-    proper out-of-sample calibration.
+    This function finds the alpha that maximizes the number of weeks where
+    the hybrid prediction beats LP (lower weekly WAPE). Weekly WAPE is computed
+    by aggregating actuals and predictions within each week, then computing
+    the error on the aggregated totals.
 
     Only TRP Tier-1 rows are used for tuning.
     TRR is excluded (uses pure ML, alpha=1.0).
@@ -1408,7 +1409,8 @@ def tune_hybrid_alpha(
 
     Returns:
         DataFrame with columns:
-            liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid
+            liquidity_group, horizon, alpha, weekly_wins_vs_lp, total_weeks,
+            win_rate_vs_lp, avg_wape_ml, avg_wape_lp, avg_wape_hybrid
     """
     if alphas is None:
         alphas = [i / 10.0 for i in range(11)]  # 0.0, 0.1, ..., 1.0
@@ -1420,7 +1422,6 @@ def tune_hybrid_alpha(
         for horizon in range(1, 9):
             # For TRR: always use pure ML (alpha=1.0)
             if lg == "TRR":
-                # Compute ML WAPE for reference
                 df_lg_h = df[
                     (df["liquidity_group"] == lg) &
                     (df["horizon"] == horizon) &
@@ -1429,34 +1430,31 @@ def tune_hybrid_alpha(
                     (df["y_pred_point"].notna())
                 ]
                 if len(df_lg_h) > 0:
-                    wape_ml = wape_aggregate_series(
-                        df_lg_h["actual_value"],
-                        df_lg_h["y_pred_point"]
-                    )
-                    # LP WAPE for horizons 1-4
-                    if horizon <= 4 and "lp_baseline_point" in df_lg_h.columns:
-                        lp_mask = df_lg_h["lp_baseline_point"].notna()
-                        if lp_mask.sum() > 0:
-                            wape_lp = wape_aggregate_series(
-                                df_lg_h.loc[lp_mask, "actual_value"],
-                                df_lg_h.loc[lp_mask, "lp_baseline_point"]
-                            )
-                        else:
-                            wape_lp = np.nan
-                    else:
-                        wape_lp = np.nan
+                    # Compute per-week stats for TRR
+                    weekly_stats = _compute_weekly_wape_stats(df_lg_h, alpha=1.0)
+                    results.append({
+                        "liquidity_group": lg,
+                        "horizon": horizon,
+                        "alpha": 1.0,
+                        "weekly_wins_vs_lp": weekly_stats["wins_vs_lp"],
+                        "total_weeks": weekly_stats["total_weeks"],
+                        "win_rate_vs_lp": weekly_stats["win_rate_vs_lp"],
+                        "avg_wape_ml": weekly_stats["avg_wape_ml"],
+                        "avg_wape_lp": weekly_stats["avg_wape_lp"],
+                        "avg_wape_hybrid": weekly_stats["avg_wape_hybrid"],
+                    })
                 else:
-                    wape_ml = np.nan
-                    wape_lp = np.nan
-
-                results.append({
-                    "liquidity_group": lg,
-                    "horizon": horizon,
-                    "alpha": 1.0,
-                    "wape_ml": wape_ml,
-                    "wape_lp": wape_lp,
-                    "wape_hybrid": wape_ml,  # Hybrid = ML for TRR
-                })
+                    results.append({
+                        "liquidity_group": lg,
+                        "horizon": horizon,
+                        "alpha": 1.0,
+                        "weekly_wins_vs_lp": 0,
+                        "total_weeks": 0,
+                        "win_rate_vs_lp": np.nan,
+                        "avg_wape_ml": np.nan,
+                        "avg_wape_lp": np.nan,
+                        "avg_wape_hybrid": np.nan,
+                    })
                 continue
 
             # For TRP horizons 5-8: no LP, use pure ML
@@ -1469,25 +1467,33 @@ def tune_hybrid_alpha(
                     (df["y_pred_point"].notna())
                 ]
                 if len(df_lg_h) > 0:
-                    wape_ml = wape_aggregate_series(
-                        df_lg_h["actual_value"],
-                        df_lg_h["y_pred_point"]
-                    )
+                    weekly_stats = _compute_weekly_wape_stats(df_lg_h, alpha=1.0)
+                    results.append({
+                        "liquidity_group": lg,
+                        "horizon": horizon,
+                        "alpha": 1.0,
+                        "weekly_wins_vs_lp": weekly_stats["wins_vs_lp"],
+                        "total_weeks": weekly_stats["total_weeks"],
+                        "win_rate_vs_lp": weekly_stats["win_rate_vs_lp"],
+                        "avg_wape_ml": weekly_stats["avg_wape_ml"],
+                        "avg_wape_lp": np.nan,
+                        "avg_wape_hybrid": weekly_stats["avg_wape_hybrid"],
+                    })
                 else:
-                    wape_ml = np.nan
-
-                results.append({
-                    "liquidity_group": lg,
-                    "horizon": horizon,
-                    "alpha": 1.0,
-                    "wape_ml": wape_ml,
-                    "wape_lp": np.nan,
-                    "wape_hybrid": wape_ml,
-                })
+                    results.append({
+                        "liquidity_group": lg,
+                        "horizon": horizon,
+                        "alpha": 1.0,
+                        "weekly_wins_vs_lp": 0,
+                        "total_weeks": 0,
+                        "win_rate_vs_lp": np.nan,
+                        "avg_wape_ml": np.nan,
+                        "avg_wape_lp": np.nan,
+                        "avg_wape_hybrid": np.nan,
+                    })
                 continue
 
-            # For TRP horizons 1-4: find optimal alpha
-            # Filter to TRP Tier-1 rows with valid data
+            # For TRP horizons 1-4: find alpha that maximizes weekly wins vs LP
             df_trp = df[
                 (df["liquidity_group"] == "TRP") &
                 (df["horizon"] == horizon) &
@@ -1502,47 +1508,130 @@ def tune_hybrid_alpha(
                     "liquidity_group": lg,
                     "horizon": horizon,
                     "alpha": 1.0,
-                    "wape_ml": np.nan,
-                    "wape_lp": np.nan,
-                    "wape_hybrid": np.nan,
+                    "weekly_wins_vs_lp": 0,
+                    "total_weeks": 0,
+                    "win_rate_vs_lp": np.nan,
+                    "avg_wape_ml": np.nan,
+                    "avg_wape_lp": np.nan,
+                    "avg_wape_hybrid": np.nan,
                 })
                 continue
 
-            # Compute WAPE for each alpha
+            # Find alpha that maximizes weekly wins vs LP
             best_alpha = 1.0
-            best_wape = float("inf")
-            alpha_wapes = {}
+            best_win_rate = -1.0
+            best_stats = None
 
             for a in alphas:
-                hybrid_pred = a * df_trp["y_pred_point"] + (1 - a) * df_trp["lp_baseline_point"]
-                wape = wape_aggregate_series(df_trp["actual_value"], hybrid_pred)
-                alpha_wapes[a] = wape
-
-                if not np.isnan(wape) and wape < best_wape:
-                    best_wape = wape
+                stats = _compute_weekly_wape_stats(df_trp, alpha=a)
+                if stats["win_rate_vs_lp"] > best_win_rate:
+                    best_win_rate = stats["win_rate_vs_lp"]
                     best_alpha = a
+                    best_stats = stats
 
-            # Get ML and LP WAPE for reference
-            wape_ml = alpha_wapes.get(1.0, np.nan)
-            wape_lp = alpha_wapes.get(0.0, np.nan)
-            wape_hybrid = alpha_wapes.get(best_alpha, np.nan)
+            if best_stats is None:
+                best_stats = _compute_weekly_wape_stats(df_trp, alpha=1.0)
 
             results.append({
                 "liquidity_group": lg,
                 "horizon": horizon,
                 "alpha": best_alpha,
-                "wape_ml": wape_ml,
-                "wape_lp": wape_lp,
-                "wape_hybrid": wape_hybrid,
+                "weekly_wins_vs_lp": best_stats["wins_vs_lp"],
+                "total_weeks": best_stats["total_weeks"],
+                "win_rate_vs_lp": best_stats["win_rate_vs_lp"],
+                "avg_wape_ml": best_stats["avg_wape_ml"],
+                "avg_wape_lp": best_stats["avg_wape_lp"],
+                "avg_wape_hybrid": best_stats["avg_wape_hybrid"],
             })
 
     if not results:
         return pd.DataFrame()
 
     result_df = pd.DataFrame(results)
-    col_order = ["liquidity_group", "horizon", "alpha", "wape_ml", "wape_lp",
-                 "wape_hybrid"]
+    col_order = ["liquidity_group", "horizon", "alpha", "weekly_wins_vs_lp",
+                 "total_weeks", "win_rate_vs_lp", "avg_wape_ml", "avg_wape_lp",
+                 "avg_wape_hybrid"]
     return result_df[[c for c in col_order if c in result_df.columns]]
+
+
+def _compute_weekly_wape_stats(
+    df: pd.DataFrame,
+    alpha: float,
+) -> Dict[str, float]:
+    """
+    Compute per-week WAPE statistics for a given alpha.
+
+    For each week, computes aggregate-then-error WAPE by summing actuals
+    and predictions within the week, then computing error on totals.
+
+    Args:
+        df: DataFrame with actual_value, y_pred_point, lp_baseline_point, week_start.
+        alpha: Blending weight (1.0 = pure ML, 0.0 = pure LP).
+
+    Returns:
+        Dict with: wins_vs_lp, total_weeks, win_rate_vs_lp,
+                   avg_wape_ml, avg_wape_lp, avg_wape_hybrid
+    """
+    weekly_results = []
+
+    for week, grp in df.groupby("week_start"):
+        actual_sum = grp["actual_value"].sum()
+        ml_sum = grp["y_pred_point"].sum()
+
+        # Check if LP is available
+        has_lp = "lp_baseline_point" in grp.columns and grp["lp_baseline_point"].notna().any()
+        lp_sum = grp["lp_baseline_point"].sum() if has_lp else np.nan
+
+        # Compute weekly WAPE (aggregate-then-error)
+        eps = 1e-6
+        ml_wape = abs(actual_sum - ml_sum) / (abs(actual_sum) + eps)
+
+        if has_lp and not np.isnan(lp_sum):
+            lp_wape = abs(actual_sum - lp_sum) / (abs(actual_sum) + eps)
+            hybrid_sum = alpha * ml_sum + (1 - alpha) * lp_sum
+            hybrid_wape = abs(actual_sum - hybrid_sum) / (abs(actual_sum) + eps)
+        else:
+            lp_wape = np.nan
+            hybrid_wape = ml_wape
+
+        weekly_results.append({
+            "ml_wape": ml_wape,
+            "lp_wape": lp_wape,
+            "hybrid_wape": hybrid_wape,
+        })
+
+    if not weekly_results:
+        return {
+            "wins_vs_lp": 0,
+            "total_weeks": 0,
+            "win_rate_vs_lp": np.nan,
+            "avg_wape_ml": np.nan,
+            "avg_wape_lp": np.nan,
+            "avg_wape_hybrid": np.nan,
+        }
+
+    weekly_df = pd.DataFrame(weekly_results)
+    total_weeks = len(weekly_df)
+
+    # Count wins vs LP (hybrid beats LP)
+    lp_valid = weekly_df["lp_wape"].notna()
+    if lp_valid.sum() > 0:
+        wins_vs_lp = int((weekly_df.loc[lp_valid, "hybrid_wape"] <
+                          weekly_df.loc[lp_valid, "lp_wape"]).sum())
+        weeks_with_lp = int(lp_valid.sum())
+        win_rate = wins_vs_lp / weeks_with_lp if weeks_with_lp > 0 else np.nan
+    else:
+        wins_vs_lp = 0
+        win_rate = np.nan
+
+    return {
+        "wins_vs_lp": wins_vs_lp,
+        "total_weeks": total_weeks,
+        "win_rate_vs_lp": win_rate,
+        "avg_wape_ml": float(weekly_df["ml_wape"].mean()),
+        "avg_wape_lp": float(weekly_df["lp_wape"].mean()) if lp_valid.any() else np.nan,
+        "avg_wape_hybrid": float(weekly_df["hybrid_wape"].mean()),
+    }
 
 
 def get_alpha_mapping(alpha_df: pd.DataFrame) -> Dict[Tuple[str, int], float]:
