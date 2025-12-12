@@ -518,6 +518,7 @@ def _build_and_run_models_backtest(
         compute_metrics_net_entity,
         tune_hybrid_alpha,
         get_alpha_mapping,
+        compute_weekly_hybrid_breakdown,
     )
 
     all_forecasts = []  # Test split predictions
@@ -739,6 +740,8 @@ def _compute_and_save_backtest_metrics(
         compute_metrics_by_entity,
         compute_metrics_net,
         compute_metrics_net_entity,
+        get_alpha_mapping,
+        compute_weekly_hybrid_breakdown,
     )
 
     metrics_paths: Dict[str, str] = {}
@@ -821,6 +824,18 @@ def _compute_and_save_backtest_metrics(
             logger.info(f"Alpha tuning table saved: {len(alpha_df)} rows")
         except Exception as e:
             logger.error(f"Error saving alpha tuning table: {e}")
+
+        # 5b. Save weekly hybrid breakdown (per-week ML vs LP vs Hybrid WAPE)
+        try:
+            alpha_mapping = get_alpha_mapping(alpha_df)
+            weekly_breakdown = compute_weekly_hybrid_breakdown(forecasts_df, alpha_mapping)
+            if not weekly_breakdown.empty:
+                weekly_path = metrics_dir / "weekly_hybrid_breakdown.parquet"
+                weekly_breakdown.to_parquet(weekly_path, index=False)
+                metrics_paths["weekly_hybrid_breakdown"] = str(weekly_path)
+                logger.info(f"Weekly hybrid breakdown saved: {len(weekly_breakdown)} rows")
+        except Exception as e:
+            logger.error(f"Error saving weekly hybrid breakdown: {e}")
 
     # 6. Compute and save diagnostics (always uses full dataset)
     diagnostic_paths = _compute_and_save_diagnostics(forecasts_df, ref_week_start)

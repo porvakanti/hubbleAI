@@ -1387,6 +1387,7 @@ def compute_pinball_by_lg_horizon(
 def tune_hybrid_alpha(
     df: pd.DataFrame,
     alphas: Optional[List[float]] = None,
+    min_win_rate: float = 0.5,
 ) -> pd.DataFrame:
     """
     Tune alpha for TRP hybrid model to maximize weekly win rate vs LP.
@@ -1398,6 +1399,9 @@ def tune_hybrid_alpha(
     by aggregating actuals and predictions within each week, then computing
     the error on the aggregated totals.
 
+    IMPORTANT: If no alpha achieves win_rate >= min_win_rate, falls back to
+    α=0 (pure LP) to ensure we never do worse than LP baseline.
+
     Only TRP Tier-1 rows are used for tuning.
     TRR is excluded (uses pure ML, alpha=1.0).
 
@@ -1406,6 +1410,8 @@ def tune_hybrid_alpha(
             liquidity_group, horizon, week_start, actual_value,
             y_pred_point, lp_baseline_point, is_pass_through.
         alphas: Alpha grid to search. Default: [0.0, 0.1, ..., 1.0].
+        min_win_rate: Minimum win rate required to use hybrid. If best alpha
+            doesn't achieve this, falls back to α=0 (pure LP). Default: 0.5.
 
     Returns:
         DataFrame with columns:
@@ -1518,7 +1524,7 @@ def tune_hybrid_alpha(
                 continue
 
             # Find alpha that maximizes weekly wins vs LP
-            best_alpha = 1.0
+            best_alpha = 0.0  # Default to pure LP
             best_win_rate = -1.0
             best_stats = None
 
@@ -1529,8 +1535,20 @@ def tune_hybrid_alpha(
                     best_alpha = a
                     best_stats = stats
 
+            # If best win rate doesn't meet threshold, fall back to pure LP (α=0)
+            # This ensures we never do worse than LP baseline
+            if best_win_rate < min_win_rate:
+                best_alpha = 0.0
+                best_stats = _compute_weekly_wape_stats(df_trp, alpha=0.0)
+                # Log that we're falling back to LP
+                import logging
+                logging.getLogger(__name__).info(
+                    f"TRP H{horizon}: Best win rate {best_win_rate:.1%} < {min_win_rate:.0%} threshold, "
+                    f"falling back to pure LP (α=0)"
+                )
+
             if best_stats is None:
-                best_stats = _compute_weekly_wape_stats(df_trp, alpha=1.0)
+                best_stats = _compute_weekly_wape_stats(df_trp, alpha=0.0)
 
             results.append({
                 "liquidity_group": lg,
@@ -1650,3 +1668,78 @@ def get_alpha_mapping(alpha_df: pd.DataFrame) -> Dict[Tuple[str, int], float]:
         key = (row["liquidity_group"], int(row["horizon"]))
         mapping[key] = float(row["alpha"])
     return mapping
+
+
+def compute_weekly_hybrid_breakdown(
+    df: pd.DataFrame,
+    alpha_mapping: Dict[Tuple[str, int], float],
+) -> pd.DataFrame:
+    """
+    Compute per-week breakdown of ML, LP, and Hybrid WAPE with win indicators.
+
+    For each (liquidity_group, horizon, week), computes:
+    - LP_WAPE: Weekly aggregate-then-error WAPE for LP
+    - ML_WAPE: Weekly aggregate-then-error WAPE for ML
+    - Hybrid_WAPE: Weekly aggregate-then-error WAPE for Hybrid
+    - ML_WINS: Boolean indicating if ML beats LP
+    - Hybrid_WINS: Boolean indicating if Hybrid beats LP
+
+    Args:
+        df: DataFrame with actual_value, y_pred_point, lp_baseline_point, week_start,
+            liquidity_group, horizon, is_pass_through columns.
+        alpha_mapping: Dict from get_alpha_mapping() with {(lg, horizon): alpha}.
+
+    Returns:
+        DataFrame with columns:
+            liquidity_group, horizon, week_start, alpha,
+            lp_wape, ml_wape, hybrid_wape, ml_wins, hybrid_wins
+    """
+    results = []
+
+    # Only process TRP horizons 1-4 (have LP baseline)
+    for lg in ["TRP"]:
+        for horizon in [1, 2, 3, 4]:
+            alpha = alpha_mapping.get((lg, horizon), 0.0)
+
+            df_h = df[
+                (df["liquidity_group"] == lg) &
+                (df["horizon"] == horizon) &
+                (df["is_pass_through"] == False) &
+                (df["actual_value"].notna()) &
+                (df["y_pred_point"].notna()) &
+                (df["lp_baseline_point"].notna())
+            ]
+
+            if df_h.empty:
+                continue
+
+            for week, grp in df_h.groupby("week_start"):
+                actual_sum = grp["actual_value"].sum()
+                ml_sum = grp["y_pred_point"].sum()
+                lp_sum = grp["lp_baseline_point"].sum()
+                hybrid_sum = alpha * ml_sum + (1 - alpha) * lp_sum
+
+                eps = 1e-6
+                lp_wape = abs(actual_sum - lp_sum) / (abs(actual_sum) + eps)
+                ml_wape = abs(actual_sum - ml_sum) / (abs(actual_sum) + eps)
+                hybrid_wape = abs(actual_sum - hybrid_sum) / (abs(actual_sum) + eps)
+
+                results.append({
+                    "liquidity_group": lg,
+                    "horizon": horizon,
+                    "week_start": week,
+                    "alpha": alpha,
+                    "lp_wape": lp_wape,
+                    "ml_wape": ml_wape,
+                    "hybrid_wape": hybrid_wape,
+                    "ml_wins": ml_wape < lp_wape,
+                    "hybrid_wins": hybrid_wape < lp_wape,
+                })
+
+    if not results:
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(results)
+    col_order = ["liquidity_group", "horizon", "week_start", "alpha",
+                 "lp_wape", "ml_wape", "hybrid_wape", "ml_wins", "hybrid_wins"]
+    return result_df[[c for c in col_order if c in result_df.columns]]
