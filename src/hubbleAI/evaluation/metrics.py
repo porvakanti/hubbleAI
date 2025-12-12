@@ -1387,6 +1387,7 @@ def compute_pinball_by_lg_horizon(
 def tune_hybrid_alpha(
     df: pd.DataFrame,
     alphas: Optional[List[float]] = None,
+    min_win_rate: float = 0.6,
 ) -> pd.DataFrame:
     """
     Tune alpha for TRP hybrid model to maximize weekly win rate vs LP.
@@ -1398,6 +1399,9 @@ def tune_hybrid_alpha(
     by aggregating actuals and predictions within each week, then computing
     the error on the aggregated totals.
 
+    IMPORTANT: If no alpha achieves win_rate >= min_win_rate, falls back to
+    α=0 (pure LP) to ensure we never do worse than LP baseline.
+
     Only TRP Tier-1 rows are used for tuning.
     TRR is excluded (uses pure ML, alpha=1.0).
 
@@ -1406,6 +1410,8 @@ def tune_hybrid_alpha(
             liquidity_group, horizon, week_start, actual_value,
             y_pred_point, lp_baseline_point, is_pass_through.
         alphas: Alpha grid to search. Default: [0.0, 0.1, ..., 1.0].
+        min_win_rate: Minimum win rate required to use hybrid. If best alpha
+            doesn't achieve this, falls back to α=0 (pure LP). Default: 0.6.
 
     Returns:
         DataFrame with columns:
@@ -1518,7 +1524,7 @@ def tune_hybrid_alpha(
                 continue
 
             # Find alpha that maximizes weekly wins vs LP
-            best_alpha = 1.0
+            best_alpha = 0.0  # Default to pure LP
             best_win_rate = -1.0
             best_stats = None
 
@@ -1529,8 +1535,20 @@ def tune_hybrid_alpha(
                     best_alpha = a
                     best_stats = stats
 
+            # If best win rate doesn't meet threshold, fall back to pure LP (α=0)
+            # This ensures we never do worse than LP baseline
+            if best_win_rate < min_win_rate:
+                best_alpha = 0.0
+                best_stats = _compute_weekly_wape_stats(df_trp, alpha=0.0)
+                # Log that we're falling back to LP
+                import logging
+                logging.getLogger(__name__).info(
+                    f"TRP H{horizon}: Best win rate {best_win_rate:.1%} < {min_win_rate:.0%} threshold, "
+                    f"falling back to pure LP (α=0)"
+                )
+
             if best_stats is None:
-                best_stats = _compute_weekly_wape_stats(df_trp, alpha=1.0)
+                best_stats = _compute_weekly_wape_stats(df_trp, alpha=0.0)
 
             results.append({
                 "liquidity_group": lg,
