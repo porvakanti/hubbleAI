@@ -372,14 +372,33 @@ h4 { font-size: 1rem; }
     box-shadow: var(--shadow-md);
 }
 
-.stButton > button[kind="primary"] {
-    background: var(--accent-green);
-    color: white;
-    border: none;
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="baseButton-primary"] {
+    background: var(--accent-green) !important;
+    color: white !important;
+    border: none !important;
 }
 
-.stButton > button[kind="primary"]:hover {
-    background: var(--accent-green-light);
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="baseButton-primary"]:hover {
+    background: var(--accent-green-light) !important;
+}
+
+/* Sidebar nav buttons - ensure white text on primary */
+[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] {
+    background: var(--accent-green) !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-secondary"] {
+    background: transparent !important;
+    color: var(--text-dark) !important;
+    border: 1px solid var(--border-light) !important;
+}
+
+[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-secondary"]:hover {
+    background: var(--sidebar-hover) !important;
 }
 
 /* ============================================
@@ -801,32 +820,19 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
         active_page: Name of the current page ("Overview", "Latest Forecast", "Performance Dashboard")
         ref_info: Optional dict with ref_week_start, run_id, etc.
     """
-    # Telescope logo SVG with gold accent
-    LOGO_SVG = """
-    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="36" height="36" rx="8" fill="url(#gradient)"/>
-        <defs>
-            <linearGradient id="gradient" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stop-color="#2E7D32"/>
-                <stop offset="100%" stop-color="#4CAF50"/>
-            </linearGradient>
-        </defs>
-        <!-- Telescope body -->
-        <path d="M8 22L14 12L26 8L28 10L18 18L22 28L20 28L16 20L10 24L8 22Z" fill="white" opacity="0.95"/>
-        <!-- Gold lens/aperture -->
-        <circle cx="25" cy="9" r="3" fill="#D4AF37"/>
-        <circle cx="25" cy="9" r="1.5" fill="#FFD700"/>
-        <!-- Tripod legs -->
-        <path d="M16 20L12 28M16 20L20 28M16 20L16 28" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.9"/>
-    </svg>
-    """
-
     with st.sidebar:
-        # Brand header with telescope logo
+        # Brand header with modern telescope logo
+        # Minimal design: rounded square with abstract telescope/lens shape + gold accent
         st.markdown(f"""
         <div class="sidebar-brand">
             <div class="sidebar-brand-logo">
-                {LOGO_SVG}
+                <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="#1a1a1a"/>
+                    <circle cx="18" cy="16" r="8" stroke="#D4AF37" stroke-width="2.5" fill="none"/>
+                    <circle cx="18" cy="16" r="3" fill="#D4AF37"/>
+                    <line x1="18" y1="24" x2="18" y2="31" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="13" y1="29" x2="23" y2="29" stroke="#D4AF37" stroke-width="2" stroke-linecap="round"/>
+                </svg>
                 <div>
                     <div class="sidebar-logo-text">{APP_NAME}</div>
                     <div class="sidebar-logo-subtitle">{APP_SUBTITLE}</div>
