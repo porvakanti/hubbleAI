@@ -367,23 +367,22 @@ y_hybrid = α * y_ml + (1 - α) * y_lp
 ```
 
 **Scope:**
-- TRP horizons 1-4: α tuned on TEST data (out-of-sample calibration)
+- TRP horizons 1-4: α tuned to maximize weekly wins vs LP
 - TRP horizons 5-8: α = 1.0 (no LP available, pure ML)
 - TRR: α = 1.0 (pure ML, no hybrid needed - ML performs well)
 - Tier-2 passthrough rows: y_hybrid = y_pred_point = LP
 
-**Alpha tuning (test-based calibration):**
+**Alpha tuning (weekly win rate optimization):**
 - Uses TEST split data (last 5% of weeks) for alpha calibration
-- This is post-hoc calibration, NOT model training - the ML model is truly out-of-sample
-- We're finding the optimal way to blend two existing predictions (ML and LP)
-- Minimizes aggregate-then-error WAPE (Treasury-aligned)
+- Objective: **Maximize weekly wins vs LP** (not aggregate WAPE)
+- For each week, computes aggregate-then-error WAPE for ML, LP, and hybrid
+- Finds alpha where hybrid beats LP in the most weeks
 - Alpha grid: [0.0, 0.1, 0.2, ..., 1.0] (11 values)
 
-**Why test-based tuning?**
-- Train+valid tuning produced in-sample predictions where ML memorized the data
-- This caused alpha to always be 1.0 (pure ML appeared best)
-- Test-based tuning reveals true out-of-sample performance
-- Expected TRP alphas: H1≈0.8, H2-H4≈0.2-0.3 (LP dominates for longer horizons)
+**Why weekly win rate?**
+- Treasury cares about beating LP each week, not just on average
+- A model that wins 60% of weeks is more valuable than one with lower aggregate WAPE but only 40% weekly wins
+- This approach directly optimizes for what Treasury measures
 
 **Output columns:**
 - `y_pred_point`: Pure ML point prediction
@@ -395,7 +394,8 @@ y_hybrid = α * y_ml + (1 - α) * y_lp
 
 Schema:
 ```
-liquidity_group, horizon, alpha, wape_ml, wape_lp, wape_hybrid
+liquidity_group, horizon, alpha, weekly_wins_vs_lp, total_weeks,
+win_rate_vs_lp, avg_wape_ml, avg_wape_lp, avg_wape_hybrid
 ```
 
 **Forward mode:** Loads alpha from most recent backtest run. If no backtest exists, defaults to α=1.0 (pure ML).
@@ -408,7 +408,7 @@ import pandas as pd
 # Backtest - tune alpha and get hybrid predictions
 status = run_forecast(mode="backtest", trigger_source="notebook")
 alpha_df = pd.read_parquet(status.metrics_paths["alpha_by_lg_horizon"])
-print(alpha_df[alpha_df.liquidity_group == "TRP"])  # See TRP alpha values
+print(alpha_df[alpha_df.liquidity_group == "TRP"])  # See TRP alpha values and win rates
 
 # Forward - uses tuned alpha for hybrid
 status = run_forecast(mode="forward", trigger_source="notebook")
