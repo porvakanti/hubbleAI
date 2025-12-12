@@ -57,7 +57,7 @@ if forward_status:
         "run_id": forward_status.get("run_id", "-"),
     }
 
-render_sidebar(active_page="Home", ref_info=ref_info)
+render_sidebar(active_page="Overview", ref_info=ref_info)
 
 # ---------------------------------------------------------------------------
 # Main Content
