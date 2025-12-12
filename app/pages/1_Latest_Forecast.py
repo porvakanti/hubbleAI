@@ -4,20 +4,22 @@ Page 1 - Latest Forecast (Operations View)
 Shows:
 - Data health status
 - Latest forward run status
-- Manual run button
-- Forecast summary with filters
+- 8-week forecast horizon with P10/P50/P90
+- Separate views for TRR, TRP, and NET
+- Treasury interpretation guidance
 
-Design: Modern card-based dashboard with polished styling.
+Design: Warm cream palette, card-based layout.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -29,114 +31,181 @@ from hubbleAI.service import (
 )
 
 # ---------------------------------------------------------------------------
-# Page CSS (extends global CSS from main app)
+# Page Config
+# ---------------------------------------------------------------------------
+
+st.set_page_config(
+    page_title="Latest Forecast - HubbleAI",
+    page_icon="H",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ---------------------------------------------------------------------------
+# Page CSS (extends global CSS)
 # ---------------------------------------------------------------------------
 
 PAGE_CSS = """
 <style>
-/* Main background */
-.stApp {
-    background-color: #FAF9F6;
+/* Root variables */
+:root {
+    --bg-cream: #F5F5F0;
+    --bg-cream-light: #FAFAF7;
+    --bg-white: #FFFFFF;
+    --text-dark: #2D3436;
+    --text-muted: #636E72;
+    --text-light: #95A5A6;
+    --accent-green: #4CAF50;
+    --accent-green-light: #81C784;
+    --accent-green-dark: #388E3C;
+    --accent-orange: #FF9800;
+    --accent-red: #E53935;
+    --accent-blue: #2196F3;
+    --border-light: rgba(0, 0, 0, 0.06);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
 }
+
+.stApp { background-color: var(--bg-cream); }
 
 /* Card styling */
 .card {
-    background: #FFFFFF;
-    border-radius: 16px;
+    background: var(--bg-white);
+    border-radius: var(--radius-lg);
     padding: 1.5rem;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-    border: 1px solid rgba(0, 0, 0, 0.04);
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-light);
     margin-bottom: 1rem;
-    height: 100%;
 }
 
-.card-sm {
-    padding: 1rem;
-}
+.card-sm { padding: 1rem; border-radius: var(--radius-md); }
 
 .card-header {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: #95A5A6;
+    color: var(--text-light);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 0.5rem;
 }
 
 .card-value {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
-    color: #2C3E50;
-}
-
-.card-value-lg {
-    font-size: 2rem;
+    color: var(--text-dark);
+    line-height: 1.2;
 }
 
 .card-subtitle {
     font-size: 0.8rem;
-    color: #95A5A6;
+    color: var(--text-muted);
     margin-top: 0.25rem;
 }
 
-/* Status colors */
-.text-success { color: #27AE60; }
-.text-warning { color: #F39C12; }
-.text-error { color: #E74C3C; }
-.text-muted { color: #95A5A6; }
-
-/* Accent card */
+/* Accent cards */
 .card-accent {
-    background: linear-gradient(135deg, #27AE60 0%, #2ECC71 100%);
+    background: linear-gradient(135deg, var(--accent-green) 0%, var(--accent-green-light) 100%);
 }
-.card-accent .card-header,
-.card-accent .card-value,
-.card-accent .card-subtitle {
-    color: white;
-}
-.card-accent .card-header {
-    opacity: 0.9;
-}
-.card-accent .card-subtitle {
-    opacity: 0.8;
-}
+.card-accent .card-header, .card-accent .card-value, .card-accent .card-subtitle { color: white; }
+.card-accent .card-header { opacity: 0.9; }
 
-/* Section title */
+/* Status */
+.status-success { color: var(--accent-green); font-weight: 600; }
+.status-warning { color: var(--accent-orange); font-weight: 600; }
+.status-error { color: var(--accent-red); font-weight: 600; }
+.text-muted { color: var(--text-muted); }
+
+/* Typography */
+h1, h2, h3, h4 { color: var(--text-dark); font-weight: 600; }
+h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
+
 .section-title {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
-    color: #2C3E50;
+    color: var(--text-dark);
     margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
 }
 
-/* Health indicator */
+.page-subtitle {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Health indicators */
 .health-item {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 0;
-    border-bottom: 1px solid #F0F0F0;
+    border-bottom: 1px solid var(--border-light);
 }
-.health-item:last-child {
-    border-bottom: none;
+.health-item:last-child { border-bottom: none; }
+
+/* Interpretation box */
+.interpretation-box {
+    background: linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    border-left: 4px solid var(--accent-green);
 }
-.health-icon {
-    font-size: 1.2rem;
+.interpretation-box h4 {
+    color: var(--accent-green-dark);
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
 }
-.health-label {
+.interpretation-box p, .interpretation-box ul {
+    color: var(--text-dark);
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+.interpretation-box ul { padding-left: 1.25rem; margin-top: 0.5rem; }
+.interpretation-box li { margin-bottom: 0.25rem; }
+
+/* Forecast table styling */
+.forecast-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.forecast-table th {
+    background: var(--bg-cream-light);
+    padding: 0.75rem;
+    text-align: right;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border-light);
+}
+.forecast-table th:first-child { text-align: left; }
+.forecast-table td {
+    padding: 0.75rem;
+    text-align: right;
+    border-bottom: 1px solid var(--border-light);
+}
+.forecast-table td:first-child { text-align: left; font-weight: 500; }
+.forecast-table tr:hover { background: var(--bg-cream-light); }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] { gap: 0.5rem; background: transparent; }
+.stTabs [data-baseweb="tab"] {
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 1rem;
     font-weight: 500;
-    color: #2C3E50;
+    background: var(--bg-white);
+    border: 1px solid var(--border-light);
 }
-.health-detail {
-    font-size: 0.8rem;
-    color: #95A5A6;
-    margin-left: auto;
+.stTabs [aria-selected="true"] {
+    background: var(--accent-green) !important;
+    color: white !important;
+    border-color: var(--accent-green) !important;
 }
 
-/* Hide Streamlit branding */
+/* Hide branding */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
@@ -144,26 +213,29 @@ header {visibility: hidden;}
 """
 
 
-def render_card(header: str, value: str, subtitle: str = "", accent: bool = False, size: str = "normal") -> str:
+def format_millions(val: float) -> str:
+    """Format value in millions with 2 decimals."""
+    if pd.isna(val):
+        return "-"
+    return f"{val/1e6:.2f}M"
+
+
+def format_currency(val: float) -> str:
+    """Format value as currency in millions."""
+    if pd.isna(val):
+        return "-"
+    sign = "+" if val > 0 else ""
+    return f"{sign}{val/1e6:.2f}M EUR"
+
+
+def render_card(header: str, value: str, subtitle: str = "", accent: bool = False) -> str:
     """Render a metric card."""
     card_class = "card card-accent" if accent else "card"
-    value_class = "card-value card-value-lg" if size == "large" else "card-value"
     return f"""
-    <div class="{card_class}">
+    <div class="{card_class}" style="height: 100%;">
         <div class="card-header">{header}</div>
-        <div class="{value_class}">{value}</div>
+        <div class="card-value">{value}</div>
         <div class="card-subtitle">{subtitle}</div>
-    </div>
-    """
-
-
-def render_health_item(icon: str, label: str, detail: str) -> str:
-    """Render a health status item."""
-    return f"""
-    <div class="health-item">
-        <span class="health-icon">{icon}</span>
-        <span class="health-label">{label}</span>
-        <span class="health-detail">{detail}</span>
     </div>
     """
 
@@ -173,10 +245,8 @@ def main():
 
     # Page header
     st.markdown("""
-    <div style="margin-bottom: 1.5rem;">
-        <h2 style="margin-bottom: 0.25rem; color: #2C3E50;">Latest Forecast</h2>
-        <p style="color: #95A5A6;">Operational view of forward forecasts and data health</p>
-    </div>
+    <h1>Latest Forecast</h1>
+    <p class="page-subtitle">8-week cashflow predictions with confidence intervals</p>
     """, unsafe_allow_html=True)
 
     # ---------------------------------------------------------------------------
@@ -245,122 +315,101 @@ def main():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ---------------------------------------------------------------------------
-    # Two-column layout: Data Health + Run Status
+    # Two-column layout: Actions + Data Health
     # ---------------------------------------------------------------------------
 
     left_col, right_col = st.columns([1, 2])
 
     with left_col:
-        st.markdown('<div class="section-title">Data Health Details</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card card-sm">', unsafe_allow_html=True)
-
-        # Health items
-        details = health.get("details", {})
-
-        for name, info in details.items():
-            if info.get("exists"):
-                age = info.get("age_days", "?")
-                icon = "checkmark" if info.get("healthy") else "warning"
-                if icon == "checkmark":
-                    icon_html = '<span style="color: #27AE60;">OK</span>'
-                else:
-                    icon_html = '<span style="color: #F39C12;">!</span>'
-                detail = f"{age}d old"
-            else:
-                icon_html = '<span style="color: #E74C3C;">X</span>'
-                detail = "Missing"
-
-            st.markdown(f"""
-            <div class="health-item">
-                <span class="health-icon">{icon_html}</span>
-                <span class="health-label">{name.upper()}</span>
-                <span class="health-detail">{detail}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Action buttons
-        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="section-title">Actions</div>', unsafe_allow_html=True)
 
         if st.button("Run Forward Forecast", type="primary", use_container_width=True):
-            st.info("Triggering `run_forecast(mode='forward')`...")
+            st.info("Triggering forecast run...")
             try:
                 from hubbleAI.pipeline import run_forecast
                 with st.spinner("Running forecast... this may take a few minutes"):
                     result = run_forecast(mode="forward", trigger_source="manual")
                 if result.status == "success":
-                    st.success("Forecast completed successfully!")
+                    st.success("Forecast completed!")
                 else:
-                    st.error(f"Forecast failed: {result.message}")
+                    st.error(f"Failed: {result.message}")
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
 
         if st.button("Run Backtest", use_container_width=True):
-            st.info("Triggering `run_forecast(mode='backtest')`...")
             try:
                 from hubbleAI.pipeline import run_forecast
-                with st.spinner("Running backtest... this may take several minutes"):
+                with st.spinner("Running backtest..."):
                     result = run_forecast(mode="backtest", trigger_source="manual")
                 if result.status == "success":
-                    st.success("Backtest completed successfully!")
+                    st.success("Backtest completed!")
                 else:
-                    st.error(f"Backtest failed: {result.message}")
+                    st.error(f"Failed: {result.message}")
             except Exception as e:
                 st.error(f"Error: {e}")
 
         st.caption("Production runs are automated weekly.")
 
+        # Data health details
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Data Health</div>', unsafe_allow_html=True)
+
+        details = health.get("details", {})
+        for name, info in details.items():
+            if info.get("exists"):
+                age = info.get("age_days", "?")
+                status = "OK" if info.get("healthy") else "!"
+                color = "var(--accent-green)" if info.get("healthy") else "var(--accent-orange)"
+                st.markdown(f"""
+                <div class="health-item">
+                    <span style="color: {color}; font-weight: 600;">{status}</span>
+                    <span style="flex: 1;">{name.upper()}</span>
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">{age}d old</span>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="health-item">
+                    <span style="color: var(--accent-red); font-weight: 600;">X</span>
+                    <span style="flex: 1;">{name.upper()}</span>
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">Missing</span>
+                </div>
+                """, unsafe_allow_html=True)
+
     with right_col:
-        st.markdown('<div class="section-title">Last Forward Run Details</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Last Run Details</div>', unsafe_allow_html=True)
 
         if forward_status:
             st.markdown('<div class="card">', unsafe_allow_html=True)
-
-            # Run details grid
-            detail_col1, detail_col2 = st.columns(2)
-
-            with detail_col1:
-                st.markdown(f"""
-                **Run ID:** `{forward_status.get('run_id', 'N/A')[:20]}...`
-
-                **Mode:** {forward_status.get('mode', 'N/A')}
-
-                **Trigger:** {forward_status.get('trigger_source', 'N/A')}
-                """)
-
-            with detail_col2:
+            d1, d2 = st.columns(2)
+            with d1:
+                run_id = forward_status.get('run_id', 'N/A')
+                if len(run_id) > 25:
+                    run_id = run_id[:25] + "..."
+                st.markdown(f"**Run ID:** `{run_id}`")
+                st.markdown(f"**Mode:** {forward_status.get('mode', 'N/A')}")
+                st.markdown(f"**Trigger:** {forward_status.get('trigger_source', 'N/A')}")
+            with d2:
                 created = forward_status.get('created_at', 'N/A')
                 if isinstance(created, str) and len(created) > 19:
                     created = created[:19].replace('T', ' ')
-
-                st.markdown(f"""
-                **Status:** {forward_status.get('status', 'N/A').upper()}
-
-                **As-of Date:** {forward_status.get('as_of_date', 'N/A')}
-
-                **Created:** {created}
-                """)
-
+                st.markdown(f"**Status:** {forward_status.get('status', 'N/A').upper()}")
+                st.markdown(f"**As-of Date:** {forward_status.get('as_of_date', 'N/A')}")
+                st.markdown(f"**Created:** {created}")
             if forward_status.get("message"):
                 st.markdown(f"**Message:** {forward_status.get('message')}")
-
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
             st.info("No forward forecast run found yet. Click 'Run Forward Forecast' to generate one.")
-            st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
     # ---------------------------------------------------------------------------
-    # Forecast Preview Section
+    # 8-Week Forecast Section
     # ---------------------------------------------------------------------------
 
-    st.markdown('<div class="section-title">Forecast Data Preview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">8-Week Forecast by Liquidity Group</div>', unsafe_allow_html=True)
 
     if forecast_view is None:
         st.warning("No forecast data available. Run a forward forecast first.")
@@ -368,66 +417,196 @@ def main():
 
     df = forecast_view.forecasts_df.copy()
 
-    # Filters row
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    # Ensure required columns exist
+    required_cols = ["horizon", "liquidity_group", "y_pred_point"]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        st.error(f"Missing columns: {missing_cols}")
+        return
 
-    with filter_col1:
-        lg_options = ["All"] + sorted(df["liquidity_group"].unique().tolist()) if "liquidity_group" in df.columns else ["All"]
-        selected_lg = st.selectbox("Liquidity Group", lg_options)
+    # Treasury Interpretation Box
+    st.markdown("""
+    <div class="interpretation-box">
+        <h4>How to Interpret These Forecasts</h4>
+        <p>These 8-week predictions help Treasury plan liquidity positions:</p>
+        <ul>
+            <li><strong>TRR (Treasury Receipts):</strong> Expected cash inflows from operations</li>
+            <li><strong>TRP (Treasury Payments):</strong> Expected cash outflows for payments</li>
+            <li><strong>NET:</strong> Net cash position (TRR + TRP). Positive = surplus, Negative = deficit</li>
+            <li><strong>P10/P90:</strong> 80% confidence interval. Actual is expected to fall between these values 80% of the time</li>
+        </ul>
+        <p><strong>Action:</strong> If NET P10 is negative for upcoming weeks, consider arranging short-term financing.
+        If NET P90 is significantly positive, consider short-term investments.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    with filter_col2:
-        horizon_options = ["All"] + [f"H{h}" for h in sorted(df["horizon"].unique().tolist())] if "horizon" in df.columns else ["All"]
-        selected_horizon = st.selectbox("Horizon", horizon_options)
+    # Create tabs for TRR, TRP, NET
+    tab_trr, tab_trp, tab_net = st.tabs(["TRR (Inflows)", "TRP (Outflows)", "NET (Position)"])
 
-    with filter_col3:
-        if "entity" in df.columns:
-            entity_list = sorted(df["entity"].unique().tolist())
-            entity_options = ["All"] + entity_list[:50]  # Limit for performance
-        else:
-            entity_options = ["All"]
-        selected_entity = st.selectbox("Entity", entity_options)
+    def create_horizon_summary(df_subset: pd.DataFrame, show_lp: bool = False) -> pd.DataFrame:
+        """Create horizon summary with point estimate and intervals."""
+        summary = []
+        for h in range(1, 9):
+            h_data = df_subset[df_subset["horizon"] == h]
+            if h_data.empty:
+                continue
 
-    # Apply filters
-    filtered_df = df.copy()
+            row = {
+                "Horizon": f"H{h}",
+                "Target Week": "",
+                "Point Forecast": h_data["y_pred_point"].sum(),
+            }
 
-    if selected_lg != "All" and "liquidity_group" in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df["liquidity_group"] == selected_lg]
+            # Get target week if available
+            if "target_week_start" in h_data.columns:
+                target = h_data["target_week_start"].iloc[0]
+                if pd.notna(target):
+                    if isinstance(target, str):
+                        row["Target Week"] = target[:10]
+                    else:
+                        row["Target Week"] = str(target)[:10]
 
-    if selected_horizon != "All" and "horizon" in filtered_df.columns:
-        h = int(selected_horizon.replace("H", ""))
-        filtered_df = filtered_df[filtered_df["horizon"] == h]
+            # Quantile predictions
+            if "y_pred_p10" in h_data.columns:
+                row["P10 (Low)"] = h_data["y_pred_p10"].sum()
+            if "y_pred_p50" in h_data.columns:
+                row["P50 (Median)"] = h_data["y_pred_p50"].sum()
+            if "y_pred_p90" in h_data.columns:
+                row["P90 (High)"] = h_data["y_pred_p90"].sum()
 
-    if selected_entity != "All" and "entity" in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df["entity"] == selected_entity]
+            summary.append(row)
 
-    # Net summary by horizon
-    st.markdown("**Net Forecast by Horizon (TRR + TRP)**")
+        return pd.DataFrame(summary)
 
-    if "horizon" in filtered_df.columns and "y_pred_point" in filtered_df.columns:
-        agg_cols = {"y_pred_point": "sum"}
-        if "y_pred_hybrid" in filtered_df.columns:
-            agg_cols["y_pred_hybrid"] = "sum"
+    def display_forecast_table(summary_df: pd.DataFrame, lg_name: str):
+        """Display formatted forecast table."""
+        if summary_df.empty:
+            st.info(f"No data available for {lg_name}")
+            return
 
-        net_summary = (
-            filtered_df
-            .groupby(["horizon"], as_index=False)
-            .agg(agg_cols)
+        # Format for display
+        display_df = summary_df.copy()
+        for col in display_df.columns:
+            if col not in ["Horizon", "Target Week"]:
+                display_df[col] = display_df[col].apply(format_millions)
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Horizon": st.column_config.TextColumn("Horizon", width="small"),
+                "Target Week": st.column_config.TextColumn("Target Week", width="medium"),
+                "Point Forecast": st.column_config.TextColumn("Point (EUR)", width="medium"),
+                "P10 (Low)": st.column_config.TextColumn("P10 Low", width="medium"),
+                "P50 (Median)": st.column_config.TextColumn("P50 Median", width="medium"),
+                "P90 (High)": st.column_config.TextColumn("P90 High", width="medium"),
+            }
         )
-        net_summary.columns = ["Horizon", "ML Forecast"] + (["Hybrid Forecast"] if "y_pred_hybrid" in agg_cols else [])
 
-        # Format as millions
-        for col in net_summary.columns[1:]:
-            net_summary[col] = net_summary[col].apply(lambda x: f"{x/1e6:.2f}M" if pd.notna(x) else "-")
+        # Simple bar chart of point forecasts
+        if len(summary_df) > 0 and "Point Forecast" in summary_df.columns:
+            chart_data = summary_df[["Horizon", "Point Forecast"]].copy()
+            chart_data = chart_data.set_index("Horizon")
+            chart_data["Point Forecast"] = chart_data["Point Forecast"] / 1e6  # Convert to millions
+            st.bar_chart(chart_data, height=250)
+            st.caption("Values in millions EUR")
 
-        st.dataframe(net_summary, use_container_width=True, hide_index=True)
-    else:
-        st.info("Cannot compute net summary - missing required columns.")
+    with tab_trr:
+        trr_df = df[df["liquidity_group"] == "TRR"]
+        trr_summary = create_horizon_summary(trr_df)
+        st.markdown("**TRR: Treasury Receipts (Cash Inflows)**")
+        display_forecast_table(trr_summary, "TRR")
 
-    # Detailed data
+    with tab_trp:
+        trp_df = df[df["liquidity_group"] == "TRP"]
+        trp_summary = create_horizon_summary(trp_df)
+        st.markdown("**TRP: Treasury Payments (Cash Outflows)**")
+        display_forecast_table(trp_summary, "TRP")
+
+    with tab_net:
+        st.markdown("**NET: Net Cash Position (TRR + TRP)**")
+
+        # Compute NET by summing TRR and TRP per horizon
+        net_summary = []
+        for h in range(1, 9):
+            h_data = df[df["horizon"] == h]
+            if h_data.empty:
+                continue
+
+            row = {
+                "Horizon": f"H{h}",
+                "Target Week": "",
+                "Point Forecast": h_data["y_pred_point"].sum(),
+            }
+
+            # Get target week
+            if "target_week_start" in h_data.columns:
+                target = h_data["target_week_start"].iloc[0]
+                if pd.notna(target):
+                    row["Target Week"] = str(target)[:10]
+
+            # Sum quantiles across both LGs
+            if "y_pred_p10" in h_data.columns:
+                row["P10 (Low)"] = h_data["y_pred_p10"].sum()
+            if "y_pred_p50" in h_data.columns:
+                row["P50 (Median)"] = h_data["y_pred_p50"].sum()
+            if "y_pred_p90" in h_data.columns:
+                row["P90 (High)"] = h_data["y_pred_p90"].sum()
+
+            net_summary.append(row)
+
+        net_df = pd.DataFrame(net_summary)
+        display_forecast_table(net_df, "NET")
+
+        # NET interpretation
+        if not net_df.empty and "Point Forecast" in net_df.columns:
+            total_net = net_df["Point Forecast"].sum()
+            direction = "surplus" if total_net > 0 else "deficit"
+            st.markdown(f"""
+            <div class="interpretation-box">
+                <h4>NET Position Summary</h4>
+                <p>Total projected NET over 8 weeks: <strong>{format_currency(total_net)}</strong> ({direction})</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ---------------------------------------------------------------------------
+    # Detailed Data View
+    # ---------------------------------------------------------------------------
+
     with st.expander("View Detailed Forecast Data", expanded=False):
+        # Filters
+        filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+        with filter_col1:
+            lg_options = ["All"] + sorted(df["liquidity_group"].unique().tolist())
+            selected_lg = st.selectbox("Liquidity Group", lg_options, key="detail_lg")
+
+        with filter_col2:
+            horizon_options = ["All"] + [f"H{h}" for h in sorted(df["horizon"].unique())]
+            selected_horizon = st.selectbox("Horizon", horizon_options, key="detail_h")
+
+        with filter_col3:
+            entity_list = sorted(df["entity"].unique().tolist()) if "entity" in df.columns else []
+            entity_options = ["All"] + entity_list[:50]
+            selected_entity = st.selectbox("Entity", entity_options, key="detail_entity")
+
+        # Apply filters
+        filtered_df = df.copy()
+        if selected_lg != "All":
+            filtered_df = filtered_df[filtered_df["liquidity_group"] == selected_lg]
+        if selected_horizon != "All":
+            h = int(selected_horizon.replace("H", ""))
+            filtered_df = filtered_df[filtered_df["horizon"] == h]
+        if selected_entity != "All":
+            filtered_df = filtered_df[filtered_df["entity"] == selected_entity]
+
+        # Display columns
         display_cols = [
             "entity", "liquidity_group", "horizon", "week_start", "target_week_start",
-            "y_pred_point", "y_pred_hybrid", "y_pred_p10", "y_pred_p90",
+            "y_pred_point", "y_pred_p10", "y_pred_p50", "y_pred_p90",
             "model_type", "is_pass_through"
         ]
         display_cols = [c for c in display_cols if c in filtered_df.columns]
