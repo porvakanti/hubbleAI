@@ -431,3 +431,623 @@ def get_net_wape_with_hybrid() -> Optional[pd.DataFrame]:
         net_by_h = net_by_h.merge(hybrid_by_h, on="horizon", how="left")
 
     return net_by_h
+
+
+# ---------------------------------------------------------------------------
+# Extended Service Functions for UI
+# ---------------------------------------------------------------------------
+
+# WAPE computation threshold (in EUR) - below this, WAPE is undefined
+WAPE_EPS_THRESHOLD = 500_000  # 0.5 million EUR
+
+
+@dataclass
+class ForecastRunStatus:
+    """Status of a forecast run."""
+    run_id: str
+    mode: Literal["forward", "backtest"]
+    status: str  # "success", "failure", "running"
+    ref_week_start: Optional[date]
+    as_of_date: Optional[date]
+    created_at: Optional[datetime]
+    trigger_source: str
+    output_paths: Dict[str, str]
+    metrics_paths: Dict[str, str]
+    message: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ForecastRunStatus":
+        """Create from dictionary."""
+        ref_week = data.get("ref_week_start")
+        if isinstance(ref_week, str):
+            ref_week = date.fromisoformat(ref_week)
+
+        as_of = data.get("as_of_date")
+        if isinstance(as_of, str):
+            as_of = date.fromisoformat(as_of)
+
+        created = data.get("created_at")
+        if isinstance(created, str):
+            try:
+                created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            except Exception:
+                created = None
+
+        return cls(
+            run_id=data.get("run_id", ""),
+            mode=data.get("mode", "forward"),
+            status=data.get("status", "unknown"),
+            ref_week_start=ref_week,
+            as_of_date=as_of,
+            created_at=created,
+            trigger_source=data.get("trigger_source", "unknown"),
+            output_paths=data.get("output_paths", {}),
+            metrics_paths=data.get("metrics_paths", {}),
+            message=data.get("message", ""),
+        )
+
+
+def get_latest_forward_status() -> Optional[ForecastRunStatus]:
+    """
+    Get the status of the latest forward forecast run.
+
+    Returns:
+        ForecastRunStatus or None if not found.
+    """
+    status_dict = get_last_run_by_mode("forward")
+    if status_dict is None:
+        return None
+    return ForecastRunStatus.from_dict(status_dict)
+
+
+def get_latest_backtest_status() -> Optional[ForecastRunStatus]:
+    """
+    Get the status of the latest backtest run.
+
+    Returns:
+        ForecastRunStatus or None if not found.
+    """
+    status_dict = get_last_run_by_mode("backtest")
+    if status_dict is None:
+        return None
+    return ForecastRunStatus.from_dict(status_dict)
+
+
+def load_forward_predictions(status: Optional[ForecastRunStatus] = None) -> pd.DataFrame:
+    """
+    Load forward predictions from a run status.
+
+    Args:
+        status: ForecastRunStatus object (if None, loads latest)
+
+    Returns:
+        DataFrame with forward predictions.
+    """
+    if status is None:
+        status = get_latest_forward_status()
+
+    if status is None:
+        return pd.DataFrame()
+
+    forecast_path = status.output_paths.get("forecasts")
+    if forecast_path:
+        path = Path(forecast_path)
+        if path.exists():
+            return pd.read_parquet(path)
+
+    # Fallback to directory scan
+    view = load_latest_forward_forecast()
+    if view:
+        return view.forecasts_df
+    return pd.DataFrame()
+
+
+def load_backtest_predictions(status: Optional[ForecastRunStatus] = None) -> pd.DataFrame:
+    """
+    Load backtest predictions from a run status.
+
+    Args:
+        status: ForecastRunStatus object (if None, loads latest)
+
+    Returns:
+        DataFrame with backtest predictions.
+    """
+    if status is None:
+        status = get_latest_backtest_status()
+
+    if status is None:
+        # Try loading from BacktestView
+        view = load_latest_backtest_results()
+        if view:
+            return view.backtest_df
+        return pd.DataFrame()
+
+    backtest_path = status.output_paths.get("backtest_predictions")
+    if backtest_path:
+        path = Path(backtest_path)
+        if path.exists():
+            return pd.read_parquet(path)
+
+    # Fallback to BacktestView
+    view = load_latest_backtest_results()
+    if view:
+        return view.backtest_df
+    return pd.DataFrame()
+
+
+def load_metrics_artifact(
+    status: Optional[ForecastRunStatus] = None,
+    key: str = "metrics_by_lg_clean"
+) -> Optional[pd.DataFrame]:
+    """
+    Load a specific metrics artifact.
+
+    Args:
+        status: ForecastRunStatus object (if None, loads from latest backtest)
+        key: Artifact key (e.g., "metrics_by_lg_clean", "metrics_net_clean")
+
+    Returns:
+        DataFrame or None if not found.
+    """
+    try:
+        # Try from status first
+        if status and status.metrics_paths:
+            path_str = status.metrics_paths.get(key)
+            if path_str:
+                path = Path(path_str)
+                if path.exists():
+                    return pd.read_parquet(path)
+
+        # Fallback to BacktestView
+        view = load_latest_backtest_results()
+        if view:
+            # Check metrics first, then diagnostics
+            if key in view.metrics:
+                return view.metrics[key]
+            if key in view.diagnostics:
+                return view.diagnostics[key]
+
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load metrics artifact {key}: {e}")
+        return None
+
+
+def get_available_artifacts(status: Optional[ForecastRunStatus] = None) -> Dict[str, str]:
+    """
+    Get all available artifacts for a run.
+
+    Args:
+        status: ForecastRunStatus object (if None, loads from latest)
+
+    Returns:
+        Dict mapping artifact key to file path.
+    """
+    artifacts = {}
+
+    if status:
+        artifacts.update(status.output_paths)
+        artifacts.update(status.metrics_paths)
+
+    # Also check BacktestView
+    view = load_latest_backtest_results()
+    if view:
+        # Add metrics and diagnostics keys
+        for key in view.metrics:
+            if key not in artifacts:
+                artifacts[key] = f"loaded:{key}"
+        for key in view.diagnostics:
+            if key not in artifacts:
+                artifacts[key] = f"loaded:{key}"
+
+    return artifacts
+
+
+def validate_forward_predictions(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Validate forward predictions DataFrame.
+
+    Checks:
+    - Required columns exist
+    - Quantiles are present for Tier-1 rows
+    - Values are reasonable
+
+    Args:
+        df: Forward predictions DataFrame
+
+    Returns:
+        Dict with "ok": bool, "issues": list of strings
+    """
+    issues = []
+
+    if df.empty:
+        return {"ok": False, "issues": ["DataFrame is empty"]}
+
+    # Required columns
+    required = ["entity", "liquidity_group", "horizon", "y_pred_point"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        issues.append(f"Missing required columns: {missing}")
+
+    # Check quantile columns exist
+    quantile_cols = ["y_pred_p10", "y_pred_p50", "y_pred_p90"]
+    missing_quant = [c for c in quantile_cols if c not in df.columns]
+    if missing_quant:
+        issues.append(f"Missing quantile columns: {missing_quant}")
+    else:
+        # Check Tier-1 quantiles (is_pass_through == False)
+        if "is_pass_through" in df.columns:
+            tier1 = df[df["is_pass_through"] == False]
+            if not tier1.empty:
+                for col in quantile_cols:
+                    null_count = tier1[col].isna().sum()
+                    if null_count > 0:
+                        pct = null_count / len(tier1) * 100
+                        issues.append(f"Tier-1 {col}: {null_count} null values ({pct:.1f}%)")
+
+    # Check for extreme values
+    if "y_pred_point" in df.columns:
+        extreme = (df["y_pred_point"].abs() > 1e12).sum()  # > 1 trillion
+        if extreme > 0:
+            issues.append(f"{extreme} rows have extreme point predictions (>1T EUR)")
+
+    return {
+        "ok": len(issues) == 0,
+        "issues": issues
+    }
+
+
+def prepare_forecast_views(df_forward: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    """
+    Prepare aggregated forecast views for TRR, TRP, and NET by horizon.
+
+    Args:
+        df_forward: Forward predictions DataFrame
+
+    Returns:
+        Dict with keys "TRR", "TRP", "NET", each containing a summary DataFrame
+        with columns: horizon, target_week_start, point, p10, p50, p90 (in millions)
+    """
+    result = {}
+
+    if df_forward.empty:
+        return result
+
+    for lg in ["TRR", "TRP"]:
+        lg_df = df_forward[df_forward["liquidity_group"] == lg]
+        if lg_df.empty:
+            continue
+
+        summary_rows = []
+        for h in range(1, 9):
+            h_data = lg_df[lg_df["horizon"] == h]
+            if h_data.empty:
+                continue
+
+            row = {
+                "horizon": h,
+                "target_week_start": h_data["target_week_start"].iloc[0] if "target_week_start" in h_data.columns else None,
+                "point": h_data["y_pred_point"].sum() / 1e6,
+            }
+
+            # Quantiles
+            for col, key in [("y_pred_p10", "p10"), ("y_pred_p50", "p50"), ("y_pred_p90", "p90")]:
+                if col in h_data.columns:
+                    row[key] = h_data[col].sum() / 1e6
+                else:
+                    row[key] = None
+
+            summary_rows.append(row)
+
+        if summary_rows:
+            result[lg] = pd.DataFrame(summary_rows)
+
+    # NET = TRR + TRP
+    net_rows = []
+    for h in range(1, 9):
+        h_data = df_forward[df_forward["horizon"] == h]
+        if h_data.empty:
+            continue
+
+        row = {
+            "horizon": h,
+            "target_week_start": h_data["target_week_start"].iloc[0] if "target_week_start" in h_data.columns else None,
+            "point": h_data["y_pred_point"].sum() / 1e6,
+        }
+
+        for col, key in [("y_pred_p10", "p10"), ("y_pred_p50", "p50"), ("y_pred_p90", "p90")]:
+            if col in h_data.columns:
+                row[key] = h_data[col].sum() / 1e6
+            else:
+                row[key] = None
+
+        net_rows.append(row)
+
+    if net_rows:
+        result["NET"] = pd.DataFrame(net_rows)
+
+    return result
+
+
+def get_ml_prediction_column(lg: str, horizon: int, df: pd.DataFrame) -> str:
+    """
+    Determine which prediction column to use for "ML" based on business rules.
+
+    Rules:
+    - TRR: always y_pred_point
+    - TRP H1-H4: y_pred_hybrid if available, else y_pred_point
+    - TRP H5-H8: y_pred_point
+
+    Args:
+        lg: Liquidity group ("TRR" or "TRP")
+        horizon: Horizon (1-8)
+        df: DataFrame with prediction columns
+
+    Returns:
+        Column name to use for ML prediction
+    """
+    if lg == "TRR":
+        return "y_pred_point"
+
+    if lg == "TRP" and horizon <= 4:
+        if "y_pred_hybrid" in df.columns and not df["y_pred_hybrid"].isna().all():
+            return "y_pred_hybrid"
+        return "y_pred_point"
+
+    return "y_pred_point"
+
+
+def compute_weekly_wape_by_lg(
+    df: pd.DataFrame,
+    lg: str,
+    horizon: int,
+    tier1_only: bool = True,
+    eps: float = WAPE_EPS_THRESHOLD
+) -> pd.DataFrame:
+    """
+    Compute weekly WAPE for ML vs LP for a specific liquidity group and horizon.
+
+    Args:
+        df: Backtest predictions DataFrame
+        lg: Liquidity group ("TRR", "TRP", or "NET")
+        horizon: Horizon (1-8)
+        tier1_only: Whether to exclude pass-through entities
+        eps: Threshold for near-zero denominators
+
+    Returns:
+        DataFrame with columns: week_start, actual_sum, ml_pred_sum, lp_pred_sum,
+        ml_wape, lp_wape, ml_wape_undefined, lp_wape_undefined, winner
+    """
+    if df.empty:
+        return pd.DataFrame()
+
+    # Filter data
+    filtered = df[df["horizon"] == horizon].copy()
+
+    if tier1_only and "is_pass_through" in filtered.columns:
+        filtered = filtered[filtered["is_pass_through"] == False]
+
+    if lg == "NET":
+        # Sum across both LGs
+        pass
+    elif lg in ["TRR", "TRP"]:
+        filtered = filtered[filtered["liquidity_group"] == lg]
+
+    if filtered.empty:
+        return pd.DataFrame()
+
+    # Determine ML prediction column
+    if lg == "NET":
+        # For NET, we need to compute ML separately for TRR and TRP, then sum
+        ml_col = "y_pred_point"  # Simplified: use point for NET computation
+    else:
+        ml_col = get_ml_prediction_column(lg, horizon, filtered)
+
+    # Aggregate by week
+    rows = []
+    for week, grp in filtered.groupby("week_start", observed=True):
+        actual_sum = grp["actual_value"].sum() if "actual_value" in grp.columns else 0
+        ml_sum = grp[ml_col].sum() if ml_col in grp.columns else 0
+        lp_sum = grp["lp_baseline_point"].sum() if "lp_baseline_point" in grp.columns else float("nan")
+
+        # Compute WAPE with guardrails
+        ml_wape = float("nan")
+        ml_undefined = True
+        lp_wape = float("nan")
+        lp_undefined = True
+
+        if abs(actual_sum) >= eps:
+            ml_wape = abs(actual_sum - ml_sum) / abs(actual_sum)
+            ml_undefined = False
+
+            if pd.notna(lp_sum):
+                lp_wape = abs(actual_sum - lp_sum) / abs(actual_sum)
+                lp_undefined = False
+
+        # Determine winner
+        if ml_undefined:
+            winner = "N/A"
+        elif lp_undefined or pd.isna(lp_wape):
+            winner = "ML"  # LP not available
+        elif abs(ml_wape - lp_wape) < 0.001:
+            winner = "Tie"
+        elif ml_wape < lp_wape:
+            winner = "ML"
+        else:
+            winner = "LP"
+
+        rows.append({
+            "week_start": week,
+            "actual_sum": actual_sum,
+            "ml_pred_sum": ml_sum,
+            "lp_pred_sum": lp_sum,
+            "ml_wape": ml_wape,
+            "lp_wape": lp_wape,
+            "ml_wape_undefined": ml_undefined,
+            "lp_wape_undefined": lp_undefined,
+            "winner": winner,
+        })
+
+    return pd.DataFrame(rows)
+
+
+def compute_net_weekly_wape(
+    df: pd.DataFrame,
+    horizon: int,
+    tier1_only: bool = True,
+    eps: float = WAPE_EPS_THRESHOLD
+) -> pd.DataFrame:
+    """
+    Compute weekly WAPE for NET (TRR + TRP combined) at a specific horizon.
+
+    For NET:
+    - TRR uses y_pred_point
+    - TRP uses y_pred_hybrid for H1-H4 (if available), else y_pred_point
+
+    Args:
+        df: Backtest predictions DataFrame
+        horizon: Horizon (1-8)
+        tier1_only: Whether to exclude pass-through entities
+        eps: Threshold for near-zero denominators
+
+    Returns:
+        DataFrame with weekly WAPE data
+    """
+    if df.empty:
+        return pd.DataFrame()
+
+    filtered = df[df["horizon"] == horizon].copy()
+
+    if tier1_only and "is_pass_through" in filtered.columns:
+        filtered = filtered[filtered["is_pass_through"] == False]
+
+    if filtered.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for week, grp in filtered.groupby("week_start", observed=True):
+        # Sum actuals
+        actual_sum = grp["actual_value"].sum() if "actual_value" in grp.columns else 0
+
+        # Sum ML predictions (TRR uses point, TRP uses hybrid for H1-4)
+        trr_data = grp[grp["liquidity_group"] == "TRR"]
+        trp_data = grp[grp["liquidity_group"] == "TRP"]
+
+        trr_ml = trr_data["y_pred_point"].sum() if "y_pred_point" in trr_data.columns else 0
+
+        # TRP: use hybrid for H1-4 if available
+        if horizon <= 4 and "y_pred_hybrid" in trp_data.columns and not trp_data["y_pred_hybrid"].isna().all():
+            trp_ml = trp_data["y_pred_hybrid"].sum()
+        else:
+            trp_ml = trp_data["y_pred_point"].sum() if "y_pred_point" in trp_data.columns else 0
+
+        ml_sum = trr_ml + trp_ml
+
+        # Sum LP predictions
+        lp_sum = grp["lp_baseline_point"].sum() if "lp_baseline_point" in grp.columns else float("nan")
+
+        # Compute WAPE
+        ml_wape = float("nan")
+        ml_undefined = True
+        lp_wape = float("nan")
+        lp_undefined = True
+
+        if abs(actual_sum) >= eps:
+            ml_wape = abs(actual_sum - ml_sum) / abs(actual_sum)
+            ml_undefined = False
+
+            if pd.notna(lp_sum) and not (horizon > 4):  # LP only for H1-4
+                lp_wape = abs(actual_sum - lp_sum) / abs(actual_sum)
+                lp_undefined = False
+
+        # Determine winner
+        if ml_undefined:
+            winner = "N/A"
+        elif lp_undefined or pd.isna(lp_wape):
+            winner = "ML"
+        elif abs(ml_wape - lp_wape) < 0.001:
+            winner = "Tie"
+        elif ml_wape < lp_wape:
+            winner = "ML"
+        else:
+            winner = "LP"
+
+        rows.append({
+            "week_start": week,
+            "actual_sum": actual_sum,
+            "ml_pred_sum": ml_sum,
+            "lp_pred_sum": lp_sum,
+            "ml_wape": ml_wape,
+            "lp_wape": lp_wape,
+            "ml_wape_undefined": ml_undefined,
+            "lp_wape_undefined": lp_undefined,
+            "winner": winner,
+        })
+
+    return pd.DataFrame(rows)
+
+
+def get_performance_summary(
+    df_wape: pd.DataFrame,
+    exclude_undefined: bool = True
+) -> Dict[str, Any]:
+    """
+    Compute summary statistics from weekly WAPE data.
+
+    Args:
+        df_wape: DataFrame from compute_weekly_wape_by_lg or compute_net_weekly_wape
+        exclude_undefined: Whether to exclude weeks with undefined WAPE
+
+    Returns:
+        Dict with: total_weeks, ml_wins, lp_wins, ties, na_count, win_rate,
+        avg_ml_wape, avg_lp_wape, improvement_pp
+    """
+    if df_wape.empty:
+        return {
+            "total_weeks": 0,
+            "ml_wins": 0,
+            "lp_wins": 0,
+            "ties": 0,
+            "na_count": 0,
+            "win_rate": 0.0,
+            "avg_ml_wape": float("nan"),
+            "avg_lp_wape": float("nan"),
+            "improvement_pp": 0.0,
+        }
+
+    df = df_wape.copy()
+
+    if exclude_undefined:
+        df = df[~df["ml_wape_undefined"]]
+
+    total = len(df)
+    ml_wins = (df["winner"] == "ML").sum()
+    lp_wins = (df["winner"] == "LP").sum()
+    ties = (df["winner"] == "Tie").sum()
+    na_count = (df["winner"] == "N/A").sum()
+
+    # Compute averages (excluding undefined)
+    valid_ml = df[~df["ml_wape"].isna()]
+    valid_lp = df[~df["lp_wape"].isna()]
+
+    avg_ml = valid_ml["ml_wape"].mean() if not valid_ml.empty else float("nan")
+    avg_lp = valid_lp["lp_wape"].mean() if not valid_lp.empty else float("nan")
+
+    # Improvement in percentage points
+    improvement = (avg_lp - avg_ml) * 100 if pd.notna(avg_ml) and pd.notna(avg_lp) else 0.0
+
+    # Win rate (excluding NA)
+    valid_comparisons = ml_wins + lp_wins + ties
+    win_rate = ml_wins / valid_comparisons if valid_comparisons > 0 else 0.0
+
+    return {
+        "total_weeks": total,
+        "ml_wins": ml_wins,
+        "lp_wins": lp_wins,
+        "ties": ties,
+        "na_count": na_count,
+        "win_rate": win_rate,
+        "avg_ml_wape": avg_ml,
+        "avg_lp_wape": avg_lp,
+        "improvement_pp": improvement,
+    }
