@@ -1,19 +1,20 @@
 """
-Page 2 - Performance Dashboard
+Page 2 - Performance Dashboard (Backtest View)
 
-Shows backtest-based performance comparison:
-- ML vs LP vs Hybrid accuracy
-- Win rates by horizon
-- Quantile coverage (calibration)
-- Drilldown by liquidity group
+Shows:
+- ML vs LP performance comparison
+- Score cards: weeks ML outperforms LP, best week, etc.
+- WAPE trends with NET option
+- Time machine: select historical week to see H1-H8 retrospective
 
-Design: Modern card-based dashboard with polished styling.
+Design: Warm cream palette, card-based layout.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from datetime import date
 
 import streamlit as st
 import pandas as pd
@@ -28,93 +29,177 @@ from hubbleAI.service import (
 )
 
 # ---------------------------------------------------------------------------
+# Page Config
+# ---------------------------------------------------------------------------
+
+st.set_page_config(
+    page_title="Performance Dashboard - HubbleAI",
+    page_icon="H",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ---------------------------------------------------------------------------
 # Page CSS
 # ---------------------------------------------------------------------------
 
 PAGE_CSS = """
 <style>
-/* Main background */
-.stApp {
-    background-color: #FAF9F6;
+/* Root variables */
+:root {
+    --bg-cream: #F5F5F0;
+    --bg-cream-light: #FAFAF7;
+    --bg-white: #FFFFFF;
+    --text-dark: #2D3436;
+    --text-muted: #636E72;
+    --text-light: #95A5A6;
+    --accent-green: #4CAF50;
+    --accent-green-light: #81C784;
+    --accent-green-dark: #388E3C;
+    --accent-orange: #FF9800;
+    --accent-red: #E53935;
+    --accent-blue: #2196F3;
+    --border-light: rgba(0, 0, 0, 0.06);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
 }
+
+.stApp { background-color: var(--bg-cream); }
 
 /* Card styling */
 .card {
-    background: #FFFFFF;
-    border-radius: 16px;
+    background: var(--bg-white);
+    border-radius: var(--radius-lg);
     padding: 1.5rem;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-    border: 1px solid rgba(0, 0, 0, 0.04);
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-light);
     margin-bottom: 1rem;
 }
+
+.card-sm { padding: 1rem; border-radius: var(--radius-md); }
 
 .card-header {
     font-size: 0.75rem;
     font-weight: 600;
-    color: #95A5A6;
+    color: var(--text-light);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 0.5rem;
 }
 
 .card-value {
-    font-size: 2.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
-    line-height: 1;
+    color: var(--text-dark);
+    line-height: 1.2;
 }
+
+.card-value-sm { font-size: 1.25rem; }
 
 .card-subtitle {
     font-size: 0.8rem;
-    color: #95A5A6;
-    margin-top: 0.5rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
 }
 
-/* Win rate colors */
-.win-high { color: #27AE60; }
-.win-medium { color: #F39C12; }
-.win-low { color: #E74C3C; }
+/* Status colors */
+.text-green { color: var(--accent-green); }
+.text-orange { color: var(--accent-orange); }
+.text-red { color: var(--accent-red); }
+.text-muted { color: var(--text-muted); }
 
-/* Section title */
-.section-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #2C3E50;
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+/* Score card specific */
+.score-card {
+    background: var(--bg-white);
+    border-radius: var(--radius-md);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+    text-align: center;
 }
 
-/* Winner badge */
-.winner-badge {
-    display: inline-block;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
+.score-card-accent {
+    background: linear-gradient(135deg, var(--accent-green) 0%, var(--accent-green-light) 100%);
+    color: white;
+}
+
+.score-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.score-label {
     font-size: 0.75rem;
-    font-weight: 600;
-}
-.winner-hybrid {
-    background: #D5F5E3;
-    color: #27AE60;
-}
-.winner-lp {
-    background: #FADBD8;
-    color: #E74C3C;
-}
-.winner-ml {
-    background: #D6EAF8;
-    color: #2980B9;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 0.25rem;
+    opacity: 0.9;
 }
 
-/* Tier toggle */
-.tier-toggle {
-    background: #F0F0F0;
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
+.score-detail {
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    opacity: 0.8;
+}
+
+/* Typography */
+h1, h2, h3, h4 { color: var(--text-dark); font-weight: 600; }
+h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
+
+.section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-dark);
     margin-bottom: 1rem;
 }
 
-/* Hide Streamlit branding */
+.page-subtitle {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Interpretation box */
+.interpretation-box {
+    background: linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    border-left: 4px solid var(--accent-green);
+}
+.interpretation-box h4 {
+    color: var(--accent-green-dark);
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+}
+.interpretation-box p {
+    color: var(--text-dark);
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] { gap: 0.5rem; background: transparent; }
+.stTabs [data-baseweb="tab"] {
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    background: var(--bg-white);
+    border: 1px solid var(--border-light);
+}
+.stTabs [aria-selected="true"] {
+    background: var(--accent-green) !important;
+    color: white !important;
+    border-color: var(--accent-green) !important;
+}
+
+/* Hide branding */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
@@ -122,26 +207,64 @@ header {visibility: hidden;}
 """
 
 
-def get_win_color(rate: float) -> str:
-    """Get CSS class for win rate."""
-    if rate >= 0.65:
-        return "win-high"
-    elif rate >= 0.50:
-        return "win-medium"
-    return "win-low"
+def format_pct(val: float, decimals: int = 2) -> str:
+    """Format value as percentage."""
+    if pd.isna(val):
+        return "-"
+    return f"{val * 100:.{decimals}f}%"
 
 
-def render_win_card(horizon: int, wins: int, total: int, win_rate: float) -> str:
-    """Render a win rate card."""
-    pct = win_rate * 100
-    color_class = get_win_color(win_rate)
+def format_pct_value(val: float, decimals: int = 1) -> str:
+    """Format already-percentage value."""
+    if pd.isna(val):
+        return "-"
+    return f"{val:.{decimals}f}%"
+
+
+def render_score_card(value: str, label: str, detail: str = "", accent: bool = False) -> str:
+    """Render a score card."""
+    card_class = "score-card score-card-accent" if accent else "score-card"
     return f"""
-    <div class="card" style="text-align: center;">
-        <div class="card-header">Horizon {horizon}</div>
-        <div class="card-value {color_class}">{pct:.0f}%</div>
-        <div class="card-subtitle">{wins}/{total} weeks</div>
+    <div class="{card_class}">
+        <div class="score-value">{value}</div>
+        <div class="score-label">{label}</div>
+        <div class="score-detail">{detail}</div>
     </div>
     """
+
+
+def compute_net_metrics(metrics_lg: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute NET metrics by aggregating TRR and TRP.
+    Uses aggregate-then-error approach.
+    """
+    if metrics_lg is None or metrics_lg.empty:
+        return pd.DataFrame()
+
+    # Group by week_start and horizon, sum the actuals and predictions
+    net_rows = []
+
+    for (week, horizon), grp in metrics_lg.groupby(["week_start", "horizon"], observed=True):
+        actual_sum = grp["actual_sum"].sum()
+        ml_sum = grp["ml_pred_sum"].sum()
+        lp_sum = grp["lp_pred_sum"].sum() if "lp_pred_sum" in grp.columns else np.nan
+
+        eps = 1e-6
+        ml_wape = abs(actual_sum - ml_sum) / (abs(actual_sum) + eps) if pd.notna(actual_sum) else np.nan
+        lp_wape = abs(actual_sum - lp_sum) / (abs(actual_sum) + eps) if pd.notna(lp_sum) else np.nan
+
+        net_rows.append({
+            "week_start": week,
+            "horizon": horizon,
+            "liquidity_group": "NET",
+            "actual_sum": actual_sum,
+            "ml_pred_sum": ml_sum,
+            "lp_pred_sum": lp_sum,
+            "ml_wape": ml_wape,
+            "lp_wape": lp_wape,
+        })
+
+    return pd.DataFrame(net_rows)
 
 
 def main():
@@ -149,10 +272,8 @@ def main():
 
     # Page header
     st.markdown("""
-    <div style="margin-bottom: 1.5rem;">
-        <h2 style="margin-bottom: 0.25rem; color: #2C3E50;">Performance Dashboard</h2>
-        <p style="color: #95A5A6;">Backtest comparison: ML vs LP vs Hybrid</p>
-    </div>
+    <h1>Performance Dashboard</h1>
+    <p class="page-subtitle">ML vs LP accuracy comparison from backtest results</p>
     """, unsafe_allow_html=True)
 
     # ---------------------------------------------------------------------------
@@ -163,285 +284,357 @@ def main():
 
     if backtest is None:
         st.warning("No backtest results available.")
-        st.info("Run a backtest first: `run_forecast(mode='backtest')`")
+        st.info("Run a backtest first: Click 'Run Backtest' on the Latest Forecast page.")
         return
 
     metrics = backtest.metrics
     diagnostics = backtest.diagnostics
 
+    # Use clean metrics (Tier-1 only) by default
+    metrics_lg = metrics.get("metrics_by_lg_clean", metrics.get("metrics_by_lg"))
+    metrics_net = metrics.get("metrics_net_clean", metrics.get("metrics_net"))
+
     # ---------------------------------------------------------------------------
-    # Tier Toggle (Clean vs Full)
+    # Score Cards - ML vs LP Summary
     # ---------------------------------------------------------------------------
 
-    use_clean = st.checkbox(
-        "Show Tier-1 only (exclude passthrough entities)",
-        value=True,
-        help="Clean metrics exclude Tier-2 entities that use LP passthrough instead of ML predictions."
-    )
+    st.markdown('<div class="section-title">Performance Summary</div>', unsafe_allow_html=True)
 
-    metrics_net_key = "metrics_net_clean" if use_clean else "metrics_net"
-    metrics_lg_key = "metrics_by_lg_clean" if use_clean else "metrics_by_lg"
+    if metrics_lg is not None and not metrics_lg.empty:
+        # Calculate score card metrics
+        total_weeks = metrics_lg["week_start"].nunique()
+
+        # Count weeks where ML beats LP (lower WAPE)
+        weekly_comparison = metrics_lg.groupby("week_start").agg({
+            "ml_wape": "mean",
+            "lp_wape": "mean"
+        }).dropna()
+
+        ml_wins = (weekly_comparison["ml_wape"] < weekly_comparison["lp_wape"]).sum()
+        ml_win_rate = ml_wins / len(weekly_comparison) if len(weekly_comparison) > 0 else 0
+
+        # Best week (lowest ML WAPE)
+        best_week_idx = weekly_comparison["ml_wape"].idxmin() if not weekly_comparison.empty else None
+        best_week_wape = weekly_comparison.loc[best_week_idx, "ml_wape"] if best_week_idx else np.nan
+
+        # Average WAPE
+        avg_ml_wape = metrics_lg["ml_wape"].mean()
+        avg_lp_wape = metrics_lg["lp_wape"].mean()
+        improvement = (avg_lp_wape - avg_ml_wape) * 100  # In percentage points
+
+        # Display score cards
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.markdown(render_score_card(
+                value=f"{ml_wins}/{len(weekly_comparison)}",
+                label="Weeks ML Beats LP",
+                detail=f"{ml_win_rate:.0%} win rate",
+                accent=ml_win_rate > 0.5
+            ), unsafe_allow_html=True)
+
+        with col2:
+            st.markdown(render_score_card(
+                value=format_pct(avg_ml_wape),
+                label="Avg ML WAPE",
+                detail=f"LP: {format_pct(avg_lp_wape)}"
+            ), unsafe_allow_html=True)
+
+        with col3:
+            sign = "+" if improvement > 0 else ""
+            color = "text-green" if improvement > 0 else "text-red"
+            st.markdown(render_score_card(
+                value=f"{sign}{improvement:.1f}pp",
+                label="WAPE Improvement",
+                detail="vs LP baseline",
+                accent=improvement > 0
+            ), unsafe_allow_html=True)
+
+        with col4:
+            best_week_str = str(best_week_idx)[:10] if best_week_idx else "-"
+            st.markdown(render_score_card(
+                value=format_pct(best_week_wape),
+                label="Best Week WAPE",
+                detail=best_week_str
+            ), unsafe_allow_html=True)
+    else:
+        st.info("Metrics data not available for score cards.")
 
     st.markdown("---")
 
     # ---------------------------------------------------------------------------
-    # Section 1: Hybrid Win Rates (TRP H1-4)
+    # WAPE Trends by Liquidity Group (with NET option)
     # ---------------------------------------------------------------------------
 
-    st.markdown('<div class="section-title">Hybrid Win Rates vs LP (TRP)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">WAPE Trends by Liquidity Group</div>', unsafe_allow_html=True)
 
-    alpha_table = metrics.get("alpha_by_lg_horizon")
+    if metrics_lg is not None and not metrics_lg.empty:
+        # Add NET to the data
+        net_metrics = compute_net_metrics(metrics_lg)
 
-    if alpha_table is not None and not alpha_table.empty:
-        # Filter to TRP horizons 1-4
-        trp_data = alpha_table[
-            (alpha_table["liquidity_group"] == "TRP") &
-            (alpha_table["horizon"] <= 4)
+        # Combine LG + NET
+        all_metrics = pd.concat([metrics_lg, net_metrics], ignore_index=True)
+
+        # Filters
+        filter_col1, filter_col2 = st.columns(2)
+
+        with filter_col1:
+            lg_options = ["TRR", "TRP", "NET"]
+            selected_lg = st.selectbox("Liquidity Group", lg_options, key="trend_lg")
+
+        with filter_col2:
+            horizon_options = sorted(all_metrics["horizon"].unique())
+            selected_h = st.selectbox("Horizon", horizon_options, format_func=lambda x: f"H{x}", key="trend_h")
+
+        # Filter data
+        filtered = all_metrics[
+            (all_metrics["liquidity_group"] == selected_lg) &
+            (all_metrics["horizon"] == selected_h)
         ].copy()
 
-        if not trp_data.empty:
-            # Win rate cards
-            cols = st.columns(4)
-            for i, (_, row) in enumerate(trp_data.iterrows()):
-                with cols[i]:
-                    st.markdown(
-                        render_win_card(
-                            horizon=int(row["horizon"]),
-                            wins=int(row["weekly_wins_vs_lp"]),
-                            total=int(row["total_weeks"]),
-                            win_rate=row["win_rate_vs_lp"],
-                        ),
-                        unsafe_allow_html=True
-                    )
+        if not filtered.empty:
+            # Prepare chart data
+            filtered["week_start"] = pd.to_datetime(filtered["week_start"])
+            filtered = filtered.sort_values("week_start")
 
-            # Summary insight
-            avg_win = trp_data["win_rate_vs_lp"].mean() * 100
-            best_row = trp_data.loc[trp_data["win_rate_vs_lp"].idxmax()]
-            st.success(
-                f"**Average Win Rate: {avg_win:.0f}%** | "
-                f"Best: H{int(best_row['horizon'])} ({best_row['win_rate_vs_lp']*100:.0f}%)"
+            # Format for display table
+            display_df = filtered[["week_start", "ml_wape", "lp_wape"]].copy()
+            display_df = display_df.sort_values("week_start", ascending=False)
+            display_df["week_start"] = display_df["week_start"].dt.strftime("%Y-%m-%d")
+            display_df["ML WAPE"] = display_df["ml_wape"].apply(format_pct)
+            display_df["LP WAPE"] = display_df["lp_wape"].apply(format_pct)
+            display_df["Winner"] = display_df.apply(
+                lambda r: "ML" if r["ml_wape"] < r["lp_wape"] else ("LP" if r["lp_wape"] < r["ml_wape"] else "Tie"),
+                axis=1
             )
+
+            # Two columns: chart + table
+            chart_col, table_col = st.columns([2, 1])
+
+            with chart_col:
+                # Line chart
+                chart_data = filtered.set_index("week_start")[["ml_wape", "lp_wape"]].copy()
+                chart_data = chart_data * 100  # Convert to percentage
+                chart_data.columns = ["ML WAPE %", "LP WAPE %"]
+                st.line_chart(chart_data, height=350)
+                st.caption("Lower WAPE = Better accuracy")
+
+            with table_col:
+                st.dataframe(
+                    display_df[["week_start", "ML WAPE", "LP WAPE", "Winner"]].rename(columns={"week_start": "Week"}),
+                    hide_index=True,
+                    height=350,
+                    use_container_width=True
+                )
+
+            # Summary for this selection
+            ml_avg = filtered["ml_wape"].mean()
+            lp_avg = filtered["lp_wape"].mean()
+            ml_wins_filtered = (filtered["ml_wape"] < filtered["lp_wape"]).sum()
+
+            st.markdown(f"""
+            <div class="interpretation-box">
+                <h4>{selected_lg} H{selected_h} Summary</h4>
+                <p>ML wins {ml_wins_filtered} of {len(filtered)} weeks ({ml_wins_filtered/len(filtered):.0%}).
+                Average ML WAPE: {format_pct(ml_avg)}, LP WAPE: {format_pct(lp_avg)}.</p>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            st.info("No TRP data available in alpha table.")
+            st.info(f"No data for {selected_lg} H{selected_h}")
     else:
-        st.warning("Alpha tuning table not available.")
+        st.warning("Metrics by LG not available.")
 
     st.markdown("---")
 
     # ---------------------------------------------------------------------------
-    # Section 2: Net WAPE by Horizon (ML vs LP vs Hybrid)
+    # Time Machine: Historical Week Retrospective
     # ---------------------------------------------------------------------------
 
-    st.markdown('<div class="section-title">Net Accuracy by Horizon (TRR + TRP)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Time Machine: Historical Analysis</div>', unsafe_allow_html=True)
 
-    metrics_net = metrics.get(metrics_net_key)
-    weekly_hybrid = metrics.get("weekly_hybrid_breakdown")
+    st.markdown("""
+    <div class="interpretation-box">
+        <h4>How to Use</h4>
+        <p>Select a historical week from the test set to see what the 8-week forecast (H1-H8) would have looked like.
+        This helps understand how Treasury could have made different decisions with this intelligence.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if backtest.backtest_df is not None and not backtest.backtest_df.empty:
+        bt_df = backtest.backtest_df.copy()
+
+        # Get available weeks
+        if "week_start" in bt_df.columns:
+            available_weeks = sorted(bt_df["week_start"].unique())
+
+            if len(available_weeks) > 0:
+                # Week selector
+                week_col, lg_col = st.columns([2, 1])
+
+                with week_col:
+                    selected_week = st.selectbox(
+                        "Select Reference Week",
+                        available_weeks,
+                        format_func=lambda x: str(x)[:10],
+                        key="timemachine_week"
+                    )
+
+                with lg_col:
+                    tm_lg_options = ["NET", "TRR", "TRP"]
+                    selected_tm_lg = st.selectbox("View", tm_lg_options, key="timemachine_lg")
+
+                # Filter to selected week
+                week_data = bt_df[bt_df["week_start"] == selected_week].copy()
+
+                if not week_data.empty:
+                    # Build H1-H8 summary
+                    tm_summary = []
+                    for h in range(1, 9):
+                        h_data = week_data[week_data["horizon"] == h]
+
+                        if selected_tm_lg == "NET":
+                            # Sum across LGs
+                            subset = h_data
+                        else:
+                            subset = h_data[h_data["liquidity_group"] == selected_tm_lg]
+
+                        if subset.empty:
+                            continue
+
+                        actual = subset["actual_value"].sum() if "actual_value" in subset.columns else np.nan
+                        ml_pred = subset["y_pred_point"].sum() if "y_pred_point" in subset.columns else np.nan
+                        lp_pred = subset["lp_baseline_point"].sum() if "lp_baseline_point" in subset.columns else np.nan
+
+                        # Get target week
+                        target = subset["target_week_start"].iloc[0] if "target_week_start" in subset.columns else None
+
+                        # Compute WAPE
+                        eps = 1e-6
+                        ml_wape = abs(actual - ml_pred) / (abs(actual) + eps) if pd.notna(actual) and pd.notna(ml_pred) else np.nan
+                        lp_wape = abs(actual - lp_pred) / (abs(actual) + eps) if pd.notna(actual) and pd.notna(lp_pred) else np.nan
+
+                        tm_summary.append({
+                            "Horizon": f"H{h}",
+                            "Target Week": str(target)[:10] if pd.notna(target) else "-",
+                            "Actual": actual,
+                            "ML Pred": ml_pred,
+                            "LP Pred": lp_pred,
+                            "ML WAPE": ml_wape,
+                            "LP WAPE": lp_wape,
+                            "Winner": "ML" if ml_wape < lp_wape else ("LP" if lp_wape < ml_wape else "Tie")
+                        })
+
+                    if tm_summary:
+                        tm_df = pd.DataFrame(tm_summary)
+
+                        # Format for display
+                        display_tm = tm_df.copy()
+                        for col in ["Actual", "ML Pred", "LP Pred"]:
+                            if col in display_tm.columns:
+                                display_tm[col] = display_tm[col].apply(
+                                    lambda x: f"{x/1e6:.2f}M" if pd.notna(x) else "-"
+                                )
+                        display_tm["ML WAPE"] = tm_df["ML WAPE"].apply(format_pct)
+                        display_tm["LP WAPE"] = tm_df["LP WAPE"].apply(format_pct)
+
+                        st.dataframe(display_tm, hide_index=True, use_container_width=True)
+
+                        # Chart: Actual vs ML vs LP
+                        chart_tm = tm_df[["Horizon", "Actual", "ML Pred", "LP Pred"]].copy()
+                        chart_tm = chart_tm.set_index("Horizon")
+                        chart_tm = chart_tm / 1e6  # Convert to millions
+                        st.bar_chart(chart_tm, height=300)
+                        st.caption("Values in millions EUR")
+
+                        # Summary
+                        ml_wins_tm = (tm_df["ML WAPE"] < tm_df["LP WAPE"]).sum()
+                        st.markdown(f"""
+                        <div class="interpretation-box">
+                            <h4>Week {str(selected_week)[:10]} Summary ({selected_tm_lg})</h4>
+                            <p>ML would have outperformed LP in {ml_wins_tm} of {len(tm_df)} horizons.</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info("No data for selected week/LG combination.")
+                else:
+                    st.info("No data for selected week.")
+            else:
+                st.info("No weeks available in backtest data.")
+        else:
+            st.info("week_start column not found in backtest data.")
+    else:
+        st.info("Backtest predictions not available for time machine view.")
+
+    st.markdown("---")
+
+    # ---------------------------------------------------------------------------
+    # WAPE by Horizon Overview
+    # ---------------------------------------------------------------------------
+
+    st.markdown('<div class="section-title">WAPE by Horizon (All Test Weeks)</div>', unsafe_allow_html=True)
 
     if metrics_net is not None and not metrics_net.empty:
         # Aggregate by horizon
-        net_by_h = (
-            metrics_net
-            .groupby("horizon", as_index=False)
-            .agg({
-                "ml_wape": "mean",
-                "lp_wape": "mean",
-            })
-        )
-
-        # Add hybrid from weekly breakdown if available
-        if weekly_hybrid is not None and not weekly_hybrid.empty:
-            hybrid_by_h = (
-                weekly_hybrid
-                .groupby("horizon", as_index=False)
-                .agg({"hybrid_wape": "mean"})
-            )
-            net_by_h = net_by_h.merge(hybrid_by_h, on="horizon", how="left")
-
-        # Display table
-        display_df = net_by_h.copy()
-        display_df.columns = ["Horizon"] + [c.replace("_", " ").title() for c in display_df.columns[1:]]
-
-        # Format as percentages
-        for col in display_df.columns[1:]:
-            display_df[col] = display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "-")
-
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-        # Bar chart
-        chart_df = net_by_h.set_index("horizon")
-        chart_cols = [c for c in ["ml_wape", "lp_wape", "hybrid_wape"] if c in chart_df.columns]
-
-        if chart_cols:
-            st.bar_chart(chart_df[chart_cols] * 100, height=300)
-            st.caption("Lower WAPE = Better accuracy")
-    else:
-        st.warning(f"Net metrics ({metrics_net_key}) not available.")
-
-    st.markdown("---")
-
-    # ---------------------------------------------------------------------------
-    # Section 3: Quantile Forecast Calibration
-    # ---------------------------------------------------------------------------
-
-    st.markdown('<div class="section-title">Quantile Forecast Calibration</div>', unsafe_allow_html=True)
-
-    # Use quantile_coverage_by_horizon (NOT metrics_horizon_profiles!)
-    quant_coverage = diagnostics.get("quantile_coverage_by_horizon")
-
-    if quant_coverage is not None and not quant_coverage.empty:
-        coverage_cols = ["horizon", "n", "prob_below_p10", "prob_between_p10_p90", "prob_above_p90"]
-        coverage_cols = [c for c in coverage_cols if c in quant_coverage.columns]
-
-        display_quant = quant_coverage[coverage_cols].copy()
-
-        # Format percentages
-        for col in display_quant.columns:
-            if col.startswith("prob_"):
-                display_quant[col] = display_quant[col].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
-
-        display_quant.columns = ["Horizon", "N", "Below P10", "Between P10-P90", "Above P90"]
-        st.dataframe(display_quant, use_container_width=True, hide_index=True)
-
-        # Line chart for coverage
-        chart_quant = quant_coverage[["horizon", "prob_below_p10", "prob_between_p10_p90", "prob_above_p90"]].copy()
-        chart_quant = chart_quant.set_index("horizon")
-        st.line_chart(chart_quant * 100, height=250)
-
-        st.caption(
-            "**Ideal calibration:** ~10% below P10, ~80% between P10-P90, ~10% above P90. "
-            "Deviations indicate intervals are too narrow or wide."
-        )
-    else:
-        st.info("Quantile coverage diagnostics not available.")
-
-    st.markdown("---")
-
-    # ---------------------------------------------------------------------------
-    # Section 4: Drilldown by Liquidity Group
-    # ---------------------------------------------------------------------------
-
-    st.markdown('<div class="section-title">Drilldown by Liquidity Group</div>', unsafe_allow_html=True)
-
-    metrics_lg = metrics.get(metrics_lg_key)
-
-    if metrics_lg is not None and not metrics_lg.empty:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            lg_options = sorted(metrics_lg["liquidity_group"].unique())
-            selected_lg = st.selectbox("Liquidity Group", lg_options)
-
-        with col2:
-            horizon_options = sorted(metrics_lg["horizon"].unique())
-            selected_h = st.selectbox("Horizon", horizon_options, format_func=lambda x: f"H{x}")
-
-        # Filter data
-        lg_subset = metrics_lg[
-            (metrics_lg["liquidity_group"] == selected_lg) &
-            (metrics_lg["horizon"] == selected_h)
-        ].copy()
-
-        # Try to add hybrid from weekly breakdown
-        if weekly_hybrid is not None and not weekly_hybrid.empty:
-            hybrid_subset = weekly_hybrid[
-                (weekly_hybrid["liquidity_group"] == selected_lg) &
-                (weekly_hybrid["horizon"] == selected_h)
-            ][["week_start", "hybrid_wape"]].copy()
-
-            if not hybrid_subset.empty:
-                lg_subset = lg_subset.merge(hybrid_subset, on="week_start", how="left")
-
-        st.markdown(f"**Weekly WAPE for {selected_lg}, H{selected_h}:**")
-
-        if not lg_subset.empty:
-            # Display table
-            display_cols = ["week_start", "ml_wape", "lp_wape"]
-            if "hybrid_wape" in lg_subset.columns:
-                display_cols.append("hybrid_wape")
-
-            display_lg = lg_subset[display_cols].copy()
-            display_lg = display_lg.sort_values("week_start", ascending=False)
-
-            # Format
-            display_lg["week_start"] = pd.to_datetime(display_lg["week_start"]).dt.strftime("%Y-%m-%d")
-            for col in ["ml_wape", "lp_wape", "hybrid_wape"]:
-                if col in display_lg.columns:
-                    display_lg[col] = display_lg[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "-")
-
-            display_lg.columns = ["Week", "ML WAPE", "LP WAPE"] + (["Hybrid WAPE"] if "hybrid_wape" in lg_subset.columns else [])
-
-            st.dataframe(display_lg, use_container_width=True, height=300, hide_index=True)
-
-            # Line chart
-            chart_lg = lg_subset.copy()
-            chart_lg["week_start"] = pd.to_datetime(chart_lg["week_start"])
-            chart_lg = chart_lg.sort_values("week_start")
-            chart_lg = chart_lg.set_index("week_start")
-
-            chart_cols_lg = [c for c in ["ml_wape", "lp_wape", "hybrid_wape"] if c in chart_lg.columns]
-            if chart_cols_lg:
-                st.line_chart(chart_lg[chart_cols_lg] * 100, height=250)
-        else:
-            st.info("No data for selected combination.")
-    else:
-        st.warning(f"LG-level metrics ({metrics_lg_key}) not available.")
-
-    st.markdown("---")
-
-    # ---------------------------------------------------------------------------
-    # Section 5: Weekly Hybrid Breakdown (TRP H1-4)
-    # ---------------------------------------------------------------------------
-
-    st.markdown('<div class="section-title">Weekly Hybrid Breakdown</div>', unsafe_allow_html=True)
-
-    if weekly_hybrid is not None and not weekly_hybrid.empty:
-        # Add winner column
-        weekly_display = weekly_hybrid.copy()
-
-        def determine_winner(row):
-            if pd.isna(row.get("hybrid_wape")) or pd.isna(row.get("lp_wape")):
-                return "-"
-            if row["hybrid_wape"] < row["lp_wape"] and row["hybrid_wape"] < row.get("ml_wape", float("inf")):
-                return "Hybrid"
-            elif row["ml_wape"] < row["lp_wape"]:
-                return "ML"
-            return "LP"
-
-        weekly_display["winner"] = weekly_display.apply(determine_winner, axis=1)
+        horizon_summary = metrics_net.groupby("horizon").agg({
+            "ml_wape": "mean",
+            "lp_wape": "mean",
+        }).reset_index()
 
         # Format for display
-        weekly_display["week_start"] = pd.to_datetime(weekly_display["week_start"]).dt.strftime("%Y-%m-%d")
-        for col in ["ml_wape", "lp_wape", "hybrid_wape"]:
-            if col in weekly_display.columns:
-                weekly_display[col] = weekly_display[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "-")
-
-        display_cols_weekly = [
-            "liquidity_group", "horizon", "week_start",
-            "ml_wape", "lp_wape", "hybrid_wape", "winner"
-        ]
-        display_cols_weekly = [c for c in display_cols_weekly if c in weekly_display.columns]
-
-        weekly_display = weekly_display[display_cols_weekly]
-        weekly_display.columns = ["LG", "H", "Week", "ML WAPE", "LP WAPE", "Hybrid WAPE", "Winner"]
-
-        st.dataframe(
-            weekly_display.sort_values(["LG", "H", "Week"], ascending=[True, True, False]),
-            use_container_width=True,
-            height=400,
-            hide_index=True,
+        display_horizon = horizon_summary.copy()
+        display_horizon["Horizon"] = display_horizon["horizon"].apply(lambda x: f"H{x}")
+        display_horizon["ML WAPE"] = display_horizon["ml_wape"].apply(format_pct)
+        display_horizon["LP WAPE"] = display_horizon["lp_wape"].apply(format_pct)
+        display_horizon["ML Better"] = display_horizon.apply(
+            lambda r: "Yes" if r["ml_wape"] < r["lp_wape"] else "No",
+            axis=1
         )
 
-        # Summary stats
-        if "winner" in weekly_display.columns:
-            winner_counts = weekly_display["Winner"].value_counts()
-            st.markdown(f"""
-            **Winner Distribution:**
-            Hybrid: {winner_counts.get('Hybrid', 0)} |
-            ML: {winner_counts.get('ML', 0)} |
-            LP: {winner_counts.get('LP', 0)}
-            """)
+        col1, col2 = st.columns([1, 2])
+
+        with col1:
+            st.dataframe(
+                display_horizon[["Horizon", "ML WAPE", "LP WAPE", "ML Better"]],
+                hide_index=True,
+                use_container_width=True
+            )
+
+        with col2:
+            # Bar chart
+            chart_horizon = horizon_summary.set_index("horizon")[["ml_wape", "lp_wape"]] * 100
+            chart_horizon.columns = ["ML WAPE %", "LP WAPE %"]
+            st.bar_chart(chart_horizon, height=300)
     else:
-        st.info("Weekly hybrid breakdown not available.")
+        st.info("Net metrics not available.")
+
+    # ---------------------------------------------------------------------------
+    # Quantile Coverage (if available)
+    # ---------------------------------------------------------------------------
+
+    quant_coverage = diagnostics.get("quantile_coverage_by_horizon")
+    if quant_coverage is not None and not quant_coverage.empty:
+        st.markdown("---")
+        st.markdown('<div class="section-title">Quantile Calibration (P10/P50/P90)</div>', unsafe_allow_html=True)
+
+        coverage_display = quant_coverage.copy()
+        coverage_display["Horizon"] = coverage_display["horizon"].apply(lambda x: f"H{x}")
+
+        for col in ["prob_below_p10", "prob_between_p10_p90", "prob_above_p90"]:
+            if col in coverage_display.columns:
+                coverage_display[col] = coverage_display[col].apply(lambda x: f"{x*100:.1f}%")
+
+        coverage_display = coverage_display.rename(columns={
+            "prob_below_p10": "Below P10",
+            "prob_between_p10_p90": "P10-P90 Band",
+            "prob_above_p90": "Above P90",
+            "n": "N Samples"
+        })
+
+        display_cols = ["Horizon", "N Samples", "Below P10", "P10-P90 Band", "Above P90"]
+        display_cols = [c for c in display_cols if c in coverage_display.columns]
+
+        st.dataframe(coverage_display[display_cols], hide_index=True, use_container_width=True)
+        st.caption("Ideal calibration: ~10% below P10, ~80% in P10-P90, ~10% above P90")
 
     # Footer
     st.markdown("---")
