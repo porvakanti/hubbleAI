@@ -614,12 +614,113 @@ h4 { font-size: 1rem; }
 }
 
 /* ============================================
-   HIDE STREAMLIT BRANDING
+   HIDE STREAMLIT BRANDING & NATIVE NAV
    ============================================ */
 
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
+
+/* Hide native Streamlit sidebar navigation */
+[data-testid="stSidebarNav"] {
+    display: none !important;
+}
+
+/* ============================================
+   NAV CARD ALIGNMENT FIX
+   ============================================ */
+
+.nav-card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+}
+
+.nav-card {
+    background: var(--bg-white);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-light);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 200px;
+}
+
+.nav-card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+}
+
+.nav-card-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    flex: 1;
+}
+
+.nav-card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.nav-card-icon.green {
+    background: linear-gradient(135deg, #2E7D32 0%, #4CAF50 100%);
+    color: white;
+}
+
+.nav-card-icon.blue {
+    background: linear-gradient(135deg, #1976D2 0%, #42A5F5 100%);
+    color: white;
+}
+
+.nav-card-text {
+    flex: 1;
+}
+
+.nav-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin: 0 0 0.5rem 0;
+}
+
+.nav-card-desc {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.nav-card-footer {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.nav-card-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.nav-card-arrow {
+    font-weight: 500;
+}
 
 /* ============================================
    HEALTH INDICATORS
@@ -692,20 +793,40 @@ def set_global_style():
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 
 
-def render_sidebar(active_page: str = "Home", ref_info: Optional[Dict[str, Any]] = None):
+def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, Any]] = None):
     """
     Render the persistent sidebar with navigation.
 
     Args:
-        active_page: Name of the current page ("Home", "Latest Forecast", "Performance Dashboard")
+        active_page: Name of the current page ("Overview", "Latest Forecast", "Performance Dashboard")
         ref_info: Optional dict with ref_week_start, run_id, etc.
     """
+    # Telescope logo SVG with gold accent
+    LOGO_SVG = """
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="36" height="36" rx="8" fill="url(#gradient)"/>
+        <defs>
+            <linearGradient id="gradient" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#2E7D32"/>
+                <stop offset="100%" stop-color="#4CAF50"/>
+            </linearGradient>
+        </defs>
+        <!-- Telescope body -->
+        <path d="M8 22L14 12L26 8L28 10L18 18L22 28L20 28L16 20L10 24L8 22Z" fill="white" opacity="0.95"/>
+        <!-- Gold lens/aperture -->
+        <circle cx="25" cy="9" r="3" fill="#D4AF37"/>
+        <circle cx="25" cy="9" r="1.5" fill="#FFD700"/>
+        <!-- Tripod legs -->
+        <path d="M16 20L12 28M16 20L20 28M16 20L16 28" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.9"/>
+    </svg>
+    """
+
     with st.sidebar:
-        # Brand header
+        # Brand header with telescope logo
         st.markdown(f"""
         <div class="sidebar-brand">
             <div class="sidebar-brand-logo">
-                <div class="sidebar-logo-icon">H</div>
+                {LOGO_SVG}
                 <div>
                     <div class="sidebar-logo-text">{APP_NAME}</div>
                     <div class="sidebar-logo-subtitle">{APP_SUBTITLE}</div>
@@ -718,7 +839,7 @@ def render_sidebar(active_page: str = "Home", ref_info: Optional[Dict[str, Any]]
         st.markdown('<div class="sidebar-nav">', unsafe_allow_html=True)
 
         nav_items = [
-            ("Home", "streamlit_app.py"),
+            ("Overview", "streamlit_app.py"),
             ("Latest Forecast", "pages/1_Latest_Forecast.py"),
             ("Performance Dashboard", "pages/2_Performance_Dashboard.py"),
         ]
