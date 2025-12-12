@@ -378,6 +378,7 @@ y_hybrid = α * y_ml + (1 - α) * y_lp
 - For each week, computes aggregate-then-error WAPE for ML, LP, and hybrid
 - Finds alpha where hybrid beats LP in the most weeks
 - Alpha grid: [0.0, 0.1, 0.2, ..., 1.0] (11 values)
+- Fallback: If best alpha achieves < 50% win rate, falls back to α=0 (pure LP)
 
 **Why weekly win rate?**
 - Treasury cares about beating LP each week, not just on average
@@ -397,6 +398,16 @@ Schema:
 liquidity_group, horizon, alpha, weekly_wins_vs_lp, total_weeks,
 win_rate_vs_lp, avg_wape_ml, avg_wape_lp, avg_wape_hybrid
 ```
+
+**Weekly breakdown:** Saved to `metrics/backtests/{ref_week_start}/weekly_hybrid_breakdown.parquet`
+
+Schema:
+```
+liquidity_group, horizon, week_start, alpha,
+lp_wape, ml_wape, hybrid_wape, ml_wins, hybrid_wins
+```
+
+This provides per-week visibility into which weeks hybrid beats LP for TRP H1-H4.
 
 **Forward mode:** Loads alpha from most recent backtest run. If no backtest exists, defaults to α=1.0 (pure ML).
 
