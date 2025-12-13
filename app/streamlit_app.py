@@ -224,13 +224,8 @@ st.markdown("""
     text-decoration: none;
     transition: all 0.2s ease;
     border-radius: 0 0 16px 16px;
+    pointer-events: none;
 }
-.nav-card-link:hover {
-    background: rgba(0,0,0,0.02);
-}
-.nav-card-link:hover .link-text.green { color: #2E7D32; }
-.nav-card-link:hover .link-text.blue { color: #1976D2; }
-.nav-card-link:hover .arrow { transform: translateX(4px); }
 .link-text {
     font-size: 0.68rem;
     color: #8B95A1;
@@ -244,6 +239,14 @@ st.markdown("""
     font-size: 1.1rem;
     transition: transform 0.2s ease;
 }
+
+/* Hover effects triggered from parent card */
+.clickable-nav-card:hover .nav-card-link {
+    background: rgba(0,0,0,0.02);
+}
+.clickable-nav-card:hover .link-text.green { color: #2E7D32; }
+.clickable-nav-card:hover .link-text.blue { color: #1976D2; }
+.clickable-nav-card:hover .nav-card-link .arrow { transform: translateX(4px); }
 
 /* Hide default page_link styling, make it cover the footer */
 [data-testid="stPageLink-NavLink"] {
