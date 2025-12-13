@@ -123,10 +123,22 @@ GLOBAL_CSS = """
 /* Hide sidebar collapse button - keep sidebar always visible */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"],
+[data-testid="stSidebarCollapseButton"],
 button[data-testid="stSidebarNavCollapseIcon"],
-[data-testid="stSidebar"] button[kind="header"] {
+button[data-testid="baseButton-headerNoPadding"],
+[data-testid="stSidebar"] button[kind="header"],
+[data-testid="stSidebar"] button[kind="headerNoPadding"],
+[data-testid="stSidebar"] > div > div > div > button,
+[data-testid="stSidebar"] svg[data-testid="stSidebarNavCollapseIcon"],
+.st-emotion-cache-1rtdyuf,
+[data-testid="stSidebar"] button:has(svg) {
     display: none !important;
     visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
 }
 
 /* Sidebar scrollbar styling */
@@ -883,7 +895,7 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
         </div>
         """, unsafe_allow_html=True)
 
-        # Navigation - add inline CSS for button text color fix
+        # Navigation - add inline CSS for button text color fix AND hide collapse button
         st.markdown("""
         <style>
         /* Force white text on active/primary buttons in sidebar */
@@ -899,6 +911,13 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
         section[data-testid="stSidebar"] button[data-testid="baseButton-primary"] span,
         section[data-testid="stSidebar"] button[data-testid="baseButton-primary"] div {
             color: white !important;
+        }
+
+        /* HIDE the collapse button << */
+        button[data-testid="baseButton-headerNoPadding"],
+        [data-testid="stSidebar"] button[kind="headerNoPadding"],
+        [data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child {
+            display: none !important;
         }
         </style>
         """, unsafe_allow_html=True)
