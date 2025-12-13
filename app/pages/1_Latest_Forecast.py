@@ -117,19 +117,22 @@ def create_horizon_table(df: pd.DataFrame, lg: str) -> pd.DataFrame:
         row = {
             "Horizon": f"H{h}",
             "Target Week": target_week,
-            "Point (M)": h_data["y_pred_point"].sum() / 1e6,
+            "Prediction (M)": h_data["y_pred_point"].sum() / 1e6,
         }
 
-        # Quantiles
-        if "y_pred_p10" in h_data.columns:
-            p10_sum = h_data["y_pred_p10"].sum()
-            row["P10 (M)"] = p10_sum / 1e6 if pd.notna(p10_sum) else None
-        if "y_pred_p50" in h_data.columns:
-            p50_sum = h_data["y_pred_p50"].sum()
-            row["P50 (M)"] = p50_sum / 1e6 if pd.notna(p50_sum) else None
-        if "y_pred_p90" in h_data.columns:
-            p90_sum = h_data["y_pred_p90"].sum()
-            row["P90 (M)"] = p90_sum / 1e6 if pd.notna(p90_sum) else None
+        # Quantiles - check if values are all NaN before summing
+        if "y_pred_p10" in h_data.columns and h_data["y_pred_p10"].notna().any():
+            row["P10 (M)"] = h_data["y_pred_p10"].sum() / 1e6
+        else:
+            row["P10 (M)"] = None
+        if "y_pred_p50" in h_data.columns and h_data["y_pred_p50"].notna().any():
+            row["P50 (M)"] = h_data["y_pred_p50"].sum() / 1e6
+        else:
+            row["P50 (M)"] = None
+        if "y_pred_p90" in h_data.columns and h_data["y_pred_p90"].notna().any():
+            row["P90 (M)"] = h_data["y_pred_p90"].sum() / 1e6
+        else:
+            row["P90 (M)"] = None
 
         rows.append(row)
 
@@ -143,21 +146,21 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
 
     fig = go.Figure()
 
-    # Point forecast bars
+    # ML Prediction bars
     fig.add_trace(go.Bar(
         x=table_df["Horizon"],
-        y=table_df["Point (M)"],
-        name="Point Forecast",
+        y=table_df["Prediction (M)"],
+        name="ML Prediction",
         marker_color=color,
-        text=[f"{v:.1f}M" for v in table_df["Point (M)"]],
+        text=[f"{v:.1f}M" for v in table_df["Prediction (M)"]],
         textposition="outside",
-        hovertemplate="<b>%{x}</b><br>Point: %{y:.2f}M EUR<extra></extra>"
+        hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M EUR<extra></extra>"
     ))
 
     # Add P10/P90 range if available
     if "P10 (M)" in table_df.columns and "P90 (M)" in table_df.columns:
-        p10_vals = table_df["P10 (M)"].fillna(table_df["Point (M)"])
-        p90_vals = table_df["P90 (M)"].fillna(table_df["Point (M)"])
+        p10_vals = table_df["P10 (M)"].fillna(table_df["Prediction (M)"])
+        p90_vals = table_df["P90 (M)"].fillna(table_df["Prediction (M)"])
 
         fig.add_trace(go.Scatter(
             x=table_df["Horizon"],
@@ -415,7 +418,7 @@ with tab_trr:
             )
 
         with col_chart:
-            fig = create_forecast_chart(trr_table, "TRR Point Forecasts with P10/P90 Range", "#2E7D32")
+            fig = create_forecast_chart(trr_table, "TRR Predictions with P10/P90 Range", "#2E7D32")
             st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No TRR data available")
@@ -441,7 +444,7 @@ with tab_trp:
             )
 
         with col_chart:
-            fig = create_forecast_chart(trp_table, "TRP Point Forecasts with P10/P90 Range", "#D32F2F")
+            fig = create_forecast_chart(trp_table, "TRP Predictions with P10/P90 Range", "#D32F2F")
             st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No TRP data available")
@@ -468,14 +471,14 @@ with tab_net:
 
         with col_chart:
             # NET chart with colors for positive/negative
-            colors = ["#2E7D32" if v >= 0 else "#D32F2F" for v in net_table["Point (M)"]]
+            colors = ["#2E7D32" if v >= 0 else "#D32F2F" for v in net_table["Prediction (M)"]]
             fig = go.Figure()
 
             fig.add_trace(go.Bar(
                 x=net_table["Horizon"],
-                y=net_table["Point (M)"],
+                y=net_table["Prediction (M)"],
                 marker_color=colors,
-                text=[f"{v:.1f}M" for v in net_table["Point (M)"]],
+                text=[f"{v:.1f}M" for v in net_table["Prediction (M)"]],
                 textposition="outside",
                 hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M EUR<extra></extra>"
             ))
@@ -496,7 +499,7 @@ with tab_net:
             st.plotly_chart(fig, use_container_width=True)
 
         # NET interpretation summary
-        total_net = net_table["Point (M)"].sum()
+        total_net = net_table["Prediction (M)"].sum()
         direction = "surplus" if total_net > 0 else "deficit"
         color = "#2E7D32" if total_net > 0 else "#D32F2F"
 
@@ -580,7 +583,7 @@ with st.expander("View Detailed Forecast Data", expanded=False):
         "horizon": "Horizon",
         "week_start": "Week Start",
         "target_week_start": "Target Week",
-        "y_pred_point": "Prediction",
+        "y_pred_point": "ML Prediction",
         "y_pred_p10": "P10 (Low)",
         "y_pred_p50": "P50 (Median)",
         "y_pred_p90": "P90 (High)",
