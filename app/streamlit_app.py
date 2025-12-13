@@ -240,13 +240,31 @@ st.markdown("""
     transition: transform 0.2s ease;
 }
 
-/* Hover effects triggered from parent card */
-.clickable-nav-card:hover .nav-card-link {
-    background: rgba(0,0,0,0.02);
+/* Hover effects triggered from parent card - more prominent */
+.clickable-nav-card:hover .nav-card-link.green-link {
+    background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
+    border-top: 1px solid #A5D6A7;
 }
-.clickable-nav-card:hover .link-text.green { color: #2E7D32; }
-.clickable-nav-card:hover .link-text.blue { color: #1976D2; }
-.clickable-nav-card:hover .nav-card-link .arrow { transform: translateX(4px); }
+.clickable-nav-card:hover .nav-card-link.blue-link {
+    background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+    border-top: 1px solid #90CAF9;
+}
+.clickable-nav-card:hover .link-text.green {
+    color: #1B5E20;
+    font-weight: 600;
+}
+.clickable-nav-card:hover .link-text.blue {
+    color: #0D47A1;
+    font-weight: 600;
+}
+.clickable-nav-card:hover .nav-card-link .arrow.green {
+    transform: translateX(4px);
+    color: #1B5E20;
+}
+.clickable-nav-card:hover .nav-card-link .arrow.blue {
+    transform: translateX(4px);
+    color: #0D47A1;
+}
 
 /* Hide default page_link styling, make it cover the footer */
 [data-testid="stPageLink-NavLink"] {
@@ -277,7 +295,7 @@ with col_left:
                 <p>View 8-week ML predictions with P10/P50/P90 intervals for TRR, TRP, and NET.</p>
             </div>
         </div>
-        <div class="nav-card-link">
+        <div class="nav-card-link green-link">
             <span class="link-text green">Operations View</span>
             <span class="arrow green">→</span>
         </div>
@@ -297,7 +315,7 @@ with col_right:
                 <p>Compare ML vs LP accuracy, view historical performance, and explore backtest results.</p>
             </div>
         </div>
-        <div class="nav-card-link">
+        <div class="nav-card-link blue-link">
             <span class="link-text blue">Analytics View</span>
             <span class="arrow blue">→</span>
         </div>
