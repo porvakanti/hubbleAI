@@ -120,6 +120,27 @@ GLOBAL_CSS = """
     display: none !important;
 }
 
+/* Ensure sidebar collapse/expand button is visible */
+[data-testid="stSidebar"][aria-expanded="false"] {
+    background: transparent !important;
+}
+
+button[data-testid="stSidebarNavCollapseIcon"],
+[data-testid="collapsedControl"] {
+    background: var(--bg-white) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    border: 1px solid var(--border-light) !important;
+    margin: 1rem !important;
+    padding: 0.5rem !important;
+    z-index: 1000 !important;
+}
+
+button[data-testid="stSidebarNavCollapseIcon"]:hover,
+[data-testid="collapsedControl"]:hover {
+    background: var(--bg-light) !important;
+}
+
 /* Sidebar scrollbar styling */
 [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar {
     width: 4px;
@@ -898,8 +919,8 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
 
         nav_items = [
             ("Overview", "streamlit_app.py"),
-            ("Latest Forecast", "pages/1_Latest_Forecast.py"),
-            ("Performance Dashboard", "pages/2_Performance_Dashboard.py"),
+            ("Cash Outlook", "pages/1_Latest_Forecast.py"),
+            ("Analytics", "pages/2_Performance_Dashboard.py"),
         ]
 
         for label, page_path in nav_items:
