@@ -580,12 +580,12 @@ with st.expander("View Detailed Forecast Data", expanded=False):
         "horizon": "Horizon",
         "week_start": "Week Start",
         "target_week_start": "Target Week",
-        "y_pred_point": "Point Forecast",
+        "y_pred_point": "Prediction",
         "y_pred_p10": "P10 (Low)",
         "y_pred_p50": "P50 (Median)",
         "y_pred_p90": "P90 (High)",
         "model_type": "Model",
-        "is_pass_through": "Direct Input"
+        "is_pass_through": "LP Input"
     }
     display_filtered = display_filtered.rename(columns=column_renames)
 
