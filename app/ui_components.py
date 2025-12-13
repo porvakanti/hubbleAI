@@ -391,6 +391,12 @@ h4 { font-size: 1rem; }
     font-weight: 600 !important;
 }
 
+[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] p,
+[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] span,
+[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] * {
+    color: white !important;
+}
+
 [data-testid="stSidebar"] .stButton > button[data-testid="baseButton-secondary"] {
     background: transparent !important;
     color: var(--text-dark) !important;
