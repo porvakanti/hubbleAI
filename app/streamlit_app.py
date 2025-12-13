@@ -338,22 +338,11 @@ for name, info in details.items():
     if info.get("exists"):
         status_icon = "✓" if info.get("healthy") else "!"
         status_color = "#2E7D32" if info.get("healthy") else "#F57C00"
-        # Format last_modified date as "Mon DD" (e.g., "Oct 27")
-        last_mod = info.get("last_modified", "")
-        if last_mod:
-            try:
-                from datetime import datetime
-                dt = datetime.fromisoformat(last_mod)
-                date_str = dt.strftime("%b %d")
-            except:
-                date_str = "-"
-        else:
-            date_str = "-"
-        data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: {status_color}; font-weight: 600;">{status_icon}</span><span style="flex: 1;">{name.upper()}</span><span style="color: #8B95A1; font-size: 0.8rem;">{date_str}</span></div>'
+        data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: {status_color}; font-weight: 600;">{status_icon}</span><span>{name.upper()}</span></div>'
     else:
-        data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: #D32F2F; font-weight: 600;">✗</span><span style="flex: 1;">{name.upper()}</span><span style="color: #8B95A1; font-size: 0.8rem;">Missing</span></div>'
+        data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: #D32F2F; font-weight: 600;">✗</span><span>{name.upper()}</span></div>'
 
-st.markdown(f"""<div class="hubble-card hubble-card-flat"><div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem;"><div><div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Data Inputs</div>{data_inputs_html}</div><div><div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Forecast Schedule</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> Weekly runs every Tuesday</div><div style="padding: 0.25rem 0;"><span style="color: #8B95A1;">8-week rolling horizon</span></div><div style="padding: 0.25rem 0;"><span style="color: #8B95A1;">TRR + TRP liquidity groups</span></div></div><div><div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Model Info</div><div style="padding: 0.25rem 0;"><span style="font-weight: 500;">Engine:</span> LightGBM</div><div style="padding: 0.25rem 0;"><span style="font-weight: 500;">Quantiles:</span> P10/P50/P90</div><div style="padding: 0.25rem 0;"><span style="font-weight: 500;">TRP H1-4:</span> Hybrid ML+LP</div></div></div></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div class="hubble-card hubble-card-flat"><div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem;"><div><div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Data Inputs</div>{data_inputs_html}</div><div><div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Forecast Schedule</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> Weekly runs every Tuesday</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> 8-week rolling horizon</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> TRR + TRP liquidity groups</div></div><div><div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Model Info</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> Engine: LightGBM</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> Quantiles: P10/P50/P90</div><div style="padding: 0.25rem 0;"><span style="color: #2E7D32; font-weight: 600;">●</span> TRP H1-4: Hybrid ML+LP</div></div></div></div>""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Footer

@@ -955,7 +955,9 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
             run_id = ref_info.get("run_id", "-")
             if isinstance(ref_week, date):
                 ref_week = ref_week.isoformat()
-            st.markdown(f"""<div style="font-size: 0.7rem; color: var(--text-muted); padding: 0 0.5rem;"><div style="margin-bottom: 0.25rem;"><span style="opacity: 0.7;">Data:</span> {ref_week}</div><div style="word-break: break-all;"><span style="opacity: 0.7;">Run:</span> {run_id}</div></div>""", unsafe_allow_html=True)
+            # Extract just the date portion from run_id (e.g., "2025-12-06" from "2025-12-06_model_xyz")
+            run_date = str(run_id)[:10] if run_id and len(str(run_id)) >= 10 else run_id
+            st.markdown(f"""<div style="font-size: 0.7rem; color: var(--text-muted); padding: 0 0.5rem;"><div style="margin-bottom: 0.25rem;"><span style="opacity: 0.7;">Data:</span> {ref_week}</div><div><span style="opacity: 0.7;">Run:</span> {run_date}</div></div>""", unsafe_allow_html=True)
 
         # Footer
         st.markdown("---")
