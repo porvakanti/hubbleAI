@@ -847,7 +847,26 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
         </div>
         """, unsafe_allow_html=True)
 
-        # Navigation
+        # Navigation - add inline CSS for button text color fix
+        st.markdown("""
+        <style>
+        /* Force white text on active/primary buttons in sidebar */
+        section[data-testid="stSidebar"] button[kind="primary"],
+        section[data-testid="stSidebar"] button[data-testid="baseButton-primary"] {
+            background-color: #2E7D32 !important;
+            color: white !important;
+        }
+        section[data-testid="stSidebar"] button[kind="primary"] p,
+        section[data-testid="stSidebar"] button[kind="primary"] span,
+        section[data-testid="stSidebar"] button[kind="primary"] div,
+        section[data-testid="stSidebar"] button[data-testid="baseButton-primary"] p,
+        section[data-testid="stSidebar"] button[data-testid="baseButton-primary"] span,
+        section[data-testid="stSidebar"] button[data-testid="baseButton-primary"] div {
+            color: white !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         st.markdown('<div class="sidebar-nav">', unsafe_allow_html=True)
 
         nav_items = [
