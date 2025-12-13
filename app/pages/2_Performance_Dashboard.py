@@ -77,7 +77,7 @@ if forward_status:
         "run_id": forward_status.get("run_id", "-"),
     }
 
-render_sidebar(active_page="Performance Dashboard", ref_info=ref_info)
+render_sidebar(active_page="Analytics", ref_info=ref_info)
 
 # ---------------------------------------------------------------------------
 # Helper Functions
