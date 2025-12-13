@@ -22,7 +22,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 APP_VERSION = "0.4.0"
-APP_NAME = "HubbleAI"
+APP_NAME = "Hubble.AI"
 APP_SUBTITLE = "AI-Powered Forecasting"
 
 # WAPE threshold for near-zero denominators (in EUR)
@@ -955,17 +955,14 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
             run_id = ref_info.get("run_id", "-")
             if isinstance(ref_week, date):
                 ref_week = ref_week.isoformat()
-            if len(str(run_id)) > 12:
-                run_id = str(run_id)[:12] + "..."
-            st.caption(f"Data: {ref_week}")
-            st.caption(f"Run: {run_id}")
+            st.markdown(f"""<div style="font-size: 0.7rem; color: var(--text-muted); padding: 0 0.5rem;"><div style="margin-bottom: 0.25rem;"><span style="opacity: 0.7;">Data:</span> {ref_week}</div><div style="word-break: break-all;"><span style="opacity: 0.7;">Run:</span> {run_id}</div></div>""", unsafe_allow_html=True)
 
         # Footer
         st.markdown("---")
         st.markdown(f"""
         <div class="sidebar-footer-text">
             v{APP_VERSION}<br>
-            HubbleAI Treasury Platform
+            Hubble.AI Treasury Platform
         </div>
         """, unsafe_allow_html=True)
 
