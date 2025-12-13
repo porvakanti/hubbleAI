@@ -82,15 +82,27 @@ GLOBAL_CSS = """
 }
 
 /* ============================================
-   SIDEBAR - Light, Warm Design
+   SIDEBAR - Elevated, Floating Design
    ============================================ */
 
 [data-testid="stSidebar"] {
-    background: var(--bg-sidebar);
-    border-right: 1px solid var(--border-light);
+    background: transparent !important;
+    border-right: none !important;
 }
 
 [data-testid="stSidebar"] > div:first-child {
+    background: var(--bg-white);
+    margin: 1rem;
+    margin-right: 0.5rem;
+    border-radius: var(--radius-xl);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--border-light);
+    height: calc(100vh - 2rem);
+    overflow-y: auto;
+}
+
+/* Sidebar inner content padding */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
     padding: 0;
 }
 
@@ -103,27 +115,27 @@ GLOBAL_CSS = """
     color: var(--text-secondary);
 }
 
-/* Native sidebar nav styling */
+/* Hide native sidebar nav */
 [data-testid="stSidebarNav"] {
-    padding: 0;
+    display: none !important;
 }
 
-[data-testid="stSidebarNav"] a {
-    padding: 0.75rem 1rem;
-    border-radius: var(--radius-sm);
-    margin: 0.25rem 0.75rem;
-    color: var(--text-dark) !important;
-    font-weight: 500;
-    transition: all 0.2s ease;
+/* Sidebar scrollbar styling */
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar {
+    width: 4px;
 }
 
-[data-testid="stSidebarNav"] a:hover {
-    background: var(--sidebar-hover);
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-track {
+    background: transparent;
 }
 
-[data-testid="stSidebarNav"] a[aria-selected="true"] {
-    background: var(--accent-green);
-    color: white !important;
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb {
+    background: var(--border-medium);
+    border-radius: 4px;
+}
+
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }
 
 /* ============================================
@@ -546,15 +558,15 @@ h4 { font-size: 1rem; }
    ============================================ */
 
 .sidebar-brand {
-    padding: 1.25rem 1rem;
+    padding: 1.5rem 1.25rem 1.25rem 1.25rem;
     border-bottom: 1px solid var(--border-light);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 
 .sidebar-brand-logo {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.875rem;
 }
 
 .sidebar-logo-icon {
@@ -571,17 +583,18 @@ h4 { font-size: 1rem; }
 }
 
 .sidebar-logo-text {
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     font-weight: 700;
     color: var(--text-dark);
     line-height: 1.2;
 }
 
 .sidebar-logo-subtitle {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.75px;
+    margin-top: 2px;
 }
 
 /* ============================================
@@ -589,7 +602,21 @@ h4 { font-size: 1rem; }
    ============================================ */
 
 .sidebar-nav {
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 1rem;
+}
+
+/* Style nav buttons inside sidebar-nav */
+.sidebar-nav .stButton {
+    margin-bottom: 0.25rem;
+}
+
+.sidebar-nav .stButton > button {
+    border-radius: var(--radius-md) !important;
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+    padding: 0.625rem 1rem !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
 }
 
 .sidebar-nav-item {
