@@ -69,8 +69,9 @@ Important:
 | 3.2 | Probabilistic diagnostics (coverage, pinball loss) | ✅ Complete |
 | 4.1 | Hybrid ML+LP model with weekly win rate alpha tuning | ✅ Complete |
 | - | Unit tests for metrics module (23 tests) | ✅ Complete |
-| 5.1 | Streamlit UI - Page 1 (Latest Forecast) | 🔄 Pending |
-| 5.2 | Streamlit UI - Page 2 (Performance Dashboard) | 🔄 Pending |
+| 5.0 | Streamlit UI - Core Design System & Navigation | ✅ Complete |
+| 5.1 | Streamlit UI - Page 1 (Cash Outlook / Latest Forecast) | 🔄 In Progress |
+| 5.2 | Streamlit UI - Page 2 (Analytics / Performance Dashboard) | 🔄 In Progress |
 | 5.3 | Streamlit UI - Page 3 (Scenario Planner) | 🔄 Pending |
 
 ---
@@ -681,6 +682,61 @@ For each scenario:
 - Where possible, compute simple impact metrics (e.g. indicative improvement in liquidity buffer sizing or missed opportunities).
 
 This page can start simple, using backtest data and basic rules, and expand over time.
+
+### 5.4 UI Design System (Task 5.0)
+
+The Streamlit UI follows a modern, cohesive design system established in `app/ui_components.py`.
+
+**Navigation Structure:**
+- **Overview** - Home page with quick stats and navigation cards
+- **Cash Outlook** - Latest forecast view (formerly "Latest Forecast")
+- **Analytics** - Performance dashboard (formerly "Performance Dashboard")
+
+**Design Principles:**
+- Warm cream color palette (`#F5F2ED` background)
+- Floating/elevated elements with shadows
+- Green accent color (`#2E7D32`) for primary actions
+- Gold accent (`#D4AF37`) in logo for Treasury/finance theme
+
+**Key Components (in `ui_components.py`):**
+
+| Component | Function | Usage |
+|-----------|----------|-------|
+| `set_global_style()` | Inject CSS | Call at top of each page |
+| `render_sidebar()` | Navigation sidebar | Call with `active_page` parameter |
+| `render_metric_card()` | KPI display cards | For stats/metrics |
+| `format_millions()` | Format EUR values | Display currency |
+| `compute_wape_safe()` | WAPE with threshold | Handle near-zero denominators |
+
+**Sidebar Design:**
+- Always visible (collapse disabled)
+- Floating/elevated with rounded corners and shadow
+- Modern telescope logo with gold accent
+- Custom navigation buttons (not native Streamlit nav)
+
+**Color Variables (CSS):**
+```css
+--bg-main: #F5F2ED;        /* Main background */
+--bg-white: #FFFFFF;       /* Card backgrounds */
+--accent-green: #2E7D32;   /* Primary accent */
+--accent-green-light: #4CAF50;
+--text-dark: #2D3436;      /* Primary text */
+--text-muted: #8B95A1;     /* Secondary text */
+```
+
+**Page Structure Pattern:**
+```python
+# 1. Page config (must be first)
+st.set_page_config(page_title="...", layout="wide")
+
+# 2. Apply global styles
+set_global_style()
+
+# 3. Render sidebar with active page
+render_sidebar(active_page="Overview", ref_info=ref_info)
+
+# 4. Page content...
+```
 
 ---
 
