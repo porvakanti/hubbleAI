@@ -23,7 +23,7 @@ import pandas as pd
 
 APP_VERSION = "0.4.0"
 APP_NAME = "HubbleAI"
-APP_SUBTITLE = "Treasury Forecasts"
+APP_SUBTITLE = "AI-Powered Forecasting"
 
 # WAPE threshold for near-zero denominators (in EUR)
 WAPE_EPS_THRESHOLD = 500_000  # 0.5 million EUR
@@ -167,15 +167,15 @@ button[data-testid="baseButton-headerNoPadding"],
     background: var(--bg-white);
     border-radius: var(--radius-lg);
     padding: 1.5rem;
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     border: 1px solid var(--border-light);
     margin-bottom: 1rem;
-    transition: all 0.2s ease;
+    transition: all 0.25s ease;
 }
 
 .hubble-card:hover {
-    box-shadow: var(--shadow-lg);
-    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    transform: translateY(-3px);
 }
 
 .hubble-card-clickable {
@@ -188,8 +188,13 @@ button[data-testid="baseButton-headerNoPadding"],
 }
 
 .hubble-card-flat {
-    box-shadow: none;
-    border: 1px solid var(--border-medium);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+    border: 1px solid var(--border-light);
+}
+
+.hubble-card-flat:hover {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
 }
 
 .hubble-card-accent {

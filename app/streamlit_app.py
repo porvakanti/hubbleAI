@@ -70,7 +70,7 @@ st.markdown("""
         Welcome to HubbleAI
     </h1>
     <p style="color: #5A6169; font-size: 0.95rem;">
-        Explore your Treasury cashflow forecasts and performance analytics
+        Bringing long-range financial foresight for short-term liquidity through intelligent modeling and analytics
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -331,64 +331,64 @@ st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
 
 st.markdown('<div class="section-title">System Status</div>', unsafe_allow_html=True)
 
-with st.container():
-    st.markdown('<div class="hubble-card hubble-card-flat">', unsafe_allow_html=True)
+# Build System Status content as a single HTML block to avoid Streamlit container issues
+details = health.get("details", {})
+data_inputs_html = ""
+for name, info in details.items():
+    if info.get("exists"):
+        status_icon = "✓" if info.get("healthy") else "!"
+        status_color = "#2E7D32" if info.get("healthy") else "#F57C00"
+        age = info.get("age_days", "?")
+        data_inputs_html += f"""
+        <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;">
+            <span style="color: {status_color}; font-weight: 600;">{status_icon}</span>
+            <span style="flex: 1;">{name.upper()}</span>
+            <span style="color: #8B95A1; font-size: 0.8rem;">{age}d</span>
+        </div>
+        """
+    else:
+        data_inputs_html += f"""
+        <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;">
+            <span style="color: #D32F2F; font-weight: 600;">✗</span>
+            <span style="flex: 1;">{name.upper()}</span>
+            <span style="color: #8B95A1; font-size: 0.8rem;">Missing</span>
+        </div>
+        """
 
-    status_col1, status_col2, status_col3 = st.columns(3)
-
-    with status_col1:
-        st.markdown("**Data Inputs**")
-        details = health.get("details", {})
-        for name, info in details.items():
-            if info.get("exists"):
-                status_icon = "✓" if info.get("healthy") else "!"
-                status_color = "#2E7D32" if info.get("healthy") else "#F57C00"
-                age = info.get("age_days", "?")
-                st.markdown(f"""
-                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;">
-                    <span style="color: {status_color}; font-weight: 600;">{status_icon}</span>
-                    <span style="flex: 1;">{name.upper()}</span>
-                    <span style="color: #8B95A1; font-size: 0.8rem;">{age}d</span>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;">
-                    <span style="color: #D32F2F; font-weight: 600;">✗</span>
-                    <span style="flex: 1;">{name.upper()}</span>
-                    <span style="color: #8B95A1; font-size: 0.8rem;">Missing</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-    with status_col2:
-        st.markdown("**Forecast Schedule**")
-        st.markdown("""
-        <div style="padding: 0.25rem 0;">
-            <span style="color: #2E7D32; font-weight: 600;">●</span> Weekly runs every Tuesday
+st.markdown(f"""
+<div class="hubble-card hubble-card-flat">
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem;">
+        <div>
+            <div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Data Inputs</div>
+            {data_inputs_html}
         </div>
-        <div style="padding: 0.25rem 0;">
-            <span style="color: #8B95A1;">8-week rolling horizon</span>
+        <div>
+            <div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Forecast Schedule</div>
+            <div style="padding: 0.25rem 0;">
+                <span style="color: #2E7D32; font-weight: 600;">●</span> Weekly runs every Tuesday
+            </div>
+            <div style="padding: 0.25rem 0;">
+                <span style="color: #8B95A1;">8-week rolling horizon</span>
+            </div>
+            <div style="padding: 0.25rem 0;">
+                <span style="color: #8B95A1;">TRR + TRP liquidity groups</span>
+            </div>
         </div>
-        <div style="padding: 0.25rem 0;">
-            <span style="color: #8B95A1;">TRR + TRP liquidity groups</span>
+        <div>
+            <div style="font-weight: 600; margin-bottom: 0.75rem; color: #2D3436;">Model Info</div>
+            <div style="padding: 0.25rem 0;">
+                <span style="font-weight: 500;">Engine:</span> LightGBM
+            </div>
+            <div style="padding: 0.25rem 0;">
+                <span style="font-weight: 500;">Quantiles:</span> P10/P50/P90
+            </div>
+            <div style="padding: 0.25rem 0;">
+                <span style="font-weight: 500;">TRP H1-4:</span> Hybrid ML+LP
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-
-    with status_col3:
-        st.markdown("**Model Info**")
-        st.markdown("""
-        <div style="padding: 0.25rem 0;">
-            <span style="font-weight: 500;">Engine:</span> LightGBM
-        </div>
-        <div style="padding: 0.25rem 0;">
-            <span style="font-weight: 500;">Quantiles:</span> P10/P50/P90
-        </div>
-        <div style="padding: 0.25rem 0;">
-            <span style="font-weight: 500;">TRP H1-4:</span> Hybrid ML+LP
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Footer
