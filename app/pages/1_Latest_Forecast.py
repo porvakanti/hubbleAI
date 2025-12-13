@@ -49,7 +49,7 @@ from hubbleAI.service import (
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Latest Forecast - Hubble.AI",
+    page_title="Cash Outlook - Hubble.AI",
     page_icon="H",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -203,7 +203,7 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
 st.markdown("""
 <div style="margin-bottom: 1.5rem;">
     <h1 style="margin-bottom: 0.25rem; font-size: 1.75rem; font-weight: 700; color: #2D3436;">
-        Latest Forecast
+        Cash Outlook
     </h1>
     <p style="color: #5A6169; font-size: 0.95rem;">
         8-week cashflow predictions with confidence intervals
@@ -319,48 +319,30 @@ with left_col:
     details = health.get("details", {})
     for name, info in details.items():
         if info.get("exists"):
-            age = info.get("age_days", "?")
             status_icon = "✓" if info.get("healthy") else "!"
             status_color = "#2E7D32" if info.get("healthy") else "#F57C00"
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
-                <span style="color: {status_color}; font-weight: 600; width: 16px;">{status_icon}</span>
-                <span style="flex: 1; font-weight: 500;">{name.upper()}</span>
-                <span style="color: #8B95A1; font-size: 0.85rem;">{age}d old</span>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06);"><span style="color: {status_color}; font-weight: 600; width: 16px;">{status_icon}</span><span style="font-weight: 500;">{name.upper()}</span></div>', unsafe_allow_html=True)
         else:
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
-                <span style="color: #D32F2F; font-weight: 600; width: 16px;">✗</span>
-                <span style="flex: 1; font-weight: 500;">{name.upper()}</span>
-                <span style="color: #8B95A1; font-size: 0.85rem;">Missing</span>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06);"><span style="color: #D32F2F; font-weight: 600; width: 16px;">✗</span><span style="font-weight: 500;">{name.upper()}</span></div>', unsafe_allow_html=True)
 
 with right_col:
     st.markdown('<div class="section-title">Last Run Details</div>', unsafe_allow_html=True)
 
     if forward_status:
-        st.markdown('<div class="hubble-card hubble-card-sm">', unsafe_allow_html=True)
-        d1, d2 = st.columns(2)
-        with d1:
-            run_id = forward_status.get('run_id', 'N/A')
-            if len(str(run_id)) > 25:
-                run_id = str(run_id)[:25] + "..."
-            st.markdown(f"**Run ID:** `{run_id}`")
-            st.markdown(f"**Mode:** {forward_status.get('mode', 'N/A')}")
-            st.markdown(f"**Trigger:** {forward_status.get('trigger_source', 'N/A')}")
-        with d2:
-            created = forward_status.get('created_at', 'N/A')
-            if isinstance(created, str) and len(created) > 19:
-                created = created[:19].replace('T', ' ')
-            st.markdown(f"**Status:** {forward_status.get('status', 'N/A').upper()}")
-            st.markdown(f"**As-of Date:** {forward_status.get('as_of_date', 'N/A')}")
-            st.markdown(f"**Created:** {created}")
-        if forward_status.get("message"):
-            st.markdown(f"**Message:** {forward_status.get('message')}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        run_id = forward_status.get('run_id', 'N/A')
+        mode = forward_status.get('mode', 'N/A')
+        trigger = forward_status.get('trigger_source', 'N/A')
+        status = forward_status.get('status', 'N/A').upper()
+        as_of = forward_status.get('as_of_date', 'N/A')
+        created = forward_status.get('created_at', 'N/A')
+        if isinstance(created, str) and len(created) > 19:
+            created = created[:19].replace('T', ' ')
+        message = forward_status.get('message', '')
+
+        # Build as single HTML block to avoid empty element issue
+        message_html = f'<div style="grid-column: 1 / -1; padding-top: 0.5rem; border-top: 1px solid rgba(0,0,0,0.06);"><strong>Message:</strong> {message}</div>' if message else ''
+
+        st.markdown(f'''<div class="hubble-card hubble-card-sm"><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;"><div><strong>Run ID:</strong> <code style="font-size: 0.85rem;">{run_id}</code></div><div><strong>Status:</strong> {status}</div><div><strong>Mode:</strong> {mode}</div><div><strong>As-of Date:</strong> {as_of}</div><div><strong>Trigger:</strong> {trigger}</div><div><strong>Created:</strong> {created}</div>{message_html}</div></div>''', unsafe_allow_html=True)
     else:
         st.info("No forward forecast run found yet. Click 'Run Forward Forecast' to generate one.")
 
@@ -381,9 +363,10 @@ df = forecast_view.forecasts_df.copy()
 # Validate predictions
 validation = validate_forward_predictions(df)
 if not validation["ok"]:
-    st.warning("Forecast data has some issues:")
-    for issue in validation["issues"]:
-        st.markdown(f"- {issue}")
+    # Check if the issue is about missing quantile predictions
+    has_quantile_issue = any("y_pred_p10" in issue or "y_pred_p50" in issue or "y_pred_p90" in issue for issue in validation["issues"])
+    if has_quantile_issue:
+        st.warning("**Note:** Confidence intervals (P10/P50/P90) are not available for this forecast. Only point estimates are shown.")
 
 # Check required columns
 required_cols = ["horizon", "liquidity_group", "y_pred_point"]
@@ -567,18 +550,50 @@ with st.expander("View Detailed Forecast Data", expanded=False):
     ]
     display_cols = [c for c in display_cols if c in filtered_df.columns]
 
-    # Format numeric columns for display
+    # Format data for display
     display_filtered = filtered_df[display_cols].copy()
+
+    # Format numeric columns
     for col in ["y_pred_point", "y_pred_p10", "y_pred_p50", "y_pred_p90"]:
         if col in display_filtered.columns:
             display_filtered[col] = display_filtered[col].apply(
                 lambda x: f"{x/1e6:.2f}M" if pd.notna(x) else "-"
             )
 
+    # Format datetime columns - show only date part
+    for col in ["week_start", "target_week_start"]:
+        if col in display_filtered.columns:
+            display_filtered[col] = display_filtered[col].apply(
+                lambda x: str(x)[:10] if pd.notna(x) else "-"
+            )
+
+    # Format is_pass_through as Yes/No
+    if "is_pass_through" in display_filtered.columns:
+        display_filtered["is_pass_through"] = display_filtered["is_pass_through"].apply(
+            lambda x: "Yes" if x else "No" if pd.notna(x) else "-"
+        )
+
+    # Rename columns to human-readable names
+    column_renames = {
+        "entity": "Entity",
+        "liquidity_group": "Group",
+        "horizon": "Horizon",
+        "week_start": "Week Start",
+        "target_week_start": "Target Week",
+        "y_pred_point": "Point Forecast",
+        "y_pred_p10": "P10 (Low)",
+        "y_pred_p50": "P50 (Median)",
+        "y_pred_p90": "P90 (High)",
+        "model_type": "Model",
+        "is_pass_through": "Direct Input"
+    }
+    display_filtered = display_filtered.rename(columns=column_renames)
+
     st.dataframe(
         display_filtered.head(500),
         use_container_width=True,
         height=400,
+        hide_index=True,
     )
     st.caption(f"Showing {min(500, len(filtered_df))} of {len(filtered_df)} rows. Values in millions EUR.")
 
