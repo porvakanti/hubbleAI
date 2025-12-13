@@ -369,22 +369,7 @@ if not validation["ok"]:
     # Check if the issue is about missing quantile predictions
     has_quantile_issue = any("y_pred_p10" in issue or "y_pred_p50" in issue or "y_pred_p90" in issue for issue in validation["issues"])
     if has_quantile_issue:
-        # Only try auto-regeneration once per session to prevent infinite loops
-        if "quantile_regen_attempted" not in st.session_state:
-            st.session_state.quantile_regen_attempted = True
-            st.info("Regenerating forecast to include confidence intervals...")
-            try:
-                from hubbleAI.pipeline import run_forecast
-                result = run_forecast(mode="forward", trigger_source="auto_quantile_fix")
-                if result.status == "success":
-                    st.success("Forecast regenerated with confidence intervals!")
-                    st.rerun()
-                else:
-                    st.warning("**Note:** Confidence intervals (P10/P50/P90) are not available for this forecast. Only point estimates are shown.")
-            except Exception as e:
-                st.warning(f"**Note:** Could not regenerate forecast: {e}. Only point estimates are shown.")
-        else:
-            st.warning("**Note:** Confidence intervals (P10/P50/P90) are not available for this forecast. Only point estimates are shown.")
+        st.warning("**Note:** Confidence intervals (P10/P50/P90) are not available for this forecast. Only point estimates are shown.")
 
 # Check required columns
 required_cols = ["horizon", "liquidity_group", "y_pred_point"]
