@@ -35,7 +35,7 @@ from hubbleAI.service import (
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="HubbleAI - Treasury Forecasts",
+    page_title="Hubble.AI - Treasury Forecasts",
     page_icon="H",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -67,7 +67,7 @@ render_sidebar(active_page="Overview", ref_info=ref_info)
 st.markdown("""
 <div style="margin-bottom: 1.5rem;">
     <h1 style="margin-bottom: 0.25rem; font-size: 1.75rem; font-weight: 700; color: #2D3436;">
-        Welcome to HubbleAI
+        Welcome to Hubble.AI
     </h1>
     <p style="color: #5A6169; font-size: 0.95rem;">
         Bringing long-range financial foresight for short-term liquidity through intelligent modeling and analytics
@@ -338,8 +338,18 @@ for name, info in details.items():
     if info.get("exists"):
         status_icon = "✓" if info.get("healthy") else "!"
         status_color = "#2E7D32" if info.get("healthy") else "#F57C00"
-        age = info.get("age_days", "?")
-        data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: {status_color}; font-weight: 600;">{status_icon}</span><span style="flex: 1;">{name.upper()}</span><span style="color: #8B95A1; font-size: 0.8rem;">{age}d</span></div>'
+        # Format last_modified date as "Mon DD" (e.g., "Oct 27")
+        last_mod = info.get("last_modified", "")
+        if last_mod:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(last_mod)
+                date_str = dt.strftime("%b %d")
+            except:
+                date_str = "-"
+        else:
+            date_str = "-"
+        data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: {status_color}; font-weight: 600;">{status_icon}</span><span style="flex: 1;">{name.upper()}</span><span style="color: #8B95A1; font-size: 0.8rem;">{date_str}</span></div>'
     else:
         data_inputs_html += f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;"><span style="color: #D32F2F; font-weight: 600;">✗</span><span style="flex: 1;">{name.upper()}</span><span style="color: #8B95A1; font-size: 0.8rem;">Missing</span></div>'
 
@@ -352,6 +362,6 @@ st.markdown(f"""<div class="hubble-card hubble-card-flat"><div style="display: g
 st.markdown("---")
 st.markdown(f"""
 <div style="text-align: center; color: #8B95A1; font-size: 0.8rem;">
-    HubbleAI Treasury Forecasting Platform · v{APP_VERSION}
+    Hubble.AI Treasury Forecasting Platform · v{APP_VERSION}
 </div>
 """, unsafe_allow_html=True)

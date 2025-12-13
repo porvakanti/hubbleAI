@@ -49,7 +49,7 @@ from hubbleAI.service import (
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Latest Forecast - HubbleAI",
+    page_title="Latest Forecast - Hubble.AI",
     page_icon="H",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -585,6 +585,6 @@ with st.expander("View Detailed Forecast Data", expanded=False):
 # Footer
 st.markdown("---")
 if forecast_view.extra:
-    st.caption(f"Data source: {forecast_view.extra.get('source', 'unknown')} | HubbleAI v{APP_VERSION}")
+    st.caption(f"Data source: {forecast_view.extra.get('source', 'unknown')} | Hubble.AI v{APP_VERSION}")
 else:
-    st.caption(f"HubbleAI v{APP_VERSION}")
+    st.caption(f"Hubble.AI v{APP_VERSION}")

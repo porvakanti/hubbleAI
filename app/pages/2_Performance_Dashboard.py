@@ -56,7 +56,7 @@ from hubbleAI.service import (
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Performance Dashboard - HubbleAI",
+    page_title="Performance Dashboard - Hubble.AI",
     page_icon="H",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -610,4 +610,4 @@ if quant_coverage is not None and not quant_coverage.empty:
 # ---------------------------------------------------------------------------
 
 st.markdown("---")
-st.caption(f"Backtest reference: {backtest.ref_week_start} | HubbleAI v{APP_VERSION}")
+st.caption(f"Backtest reference: {backtest.ref_week_start} | Hubble.AI v{APP_VERSION}")
