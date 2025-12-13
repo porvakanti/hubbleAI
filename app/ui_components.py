@@ -120,31 +120,13 @@ GLOBAL_CSS = """
     display: none !important;
 }
 
-/* Ensure sidebar expand button is ALWAYS visible when collapsed */
-[data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: var(--bg-white) !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-    border: 1px solid var(--border-light) !important;
-    margin: 1rem !important;
-    padding: 0.5rem !important;
-    z-index: 9999 !important;
-    position: fixed !important;
-    left: 0 !important;
-    top: 0.5rem !important;
-}
-
-[data-testid="collapsedControl"]:hover {
-    background: var(--bg-light) !important;
-    cursor: pointer !important;
-}
-
-[data-testid="collapsedControl"] svg {
-    width: 20px !important;
-    height: 20px !important;
+/* Hide sidebar collapse button - keep sidebar always visible */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"],
+button[data-testid="stSidebarNavCollapseIcon"],
+[data-testid="stSidebar"] button[kind="header"] {
+    display: none !important;
+    visibility: hidden !important;
 }
 
 /* Sidebar scrollbar styling */
