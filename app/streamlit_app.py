@@ -210,20 +210,52 @@ st.markdown("""
 .arrow.green { color: #2E7D32; }
 .arrow.blue { color: #1976D2; }
 
-/* Style page_link to integrate with cards */
-[data-testid="stPageLink-NavLink"] {
-    margin-top: -8px !important;
-    border-radius: 0 0 16px 16px !important;
-    background: linear-gradient(135deg, #2E7D32 0%, #4CAF50 100%) !important;
-    color: white !important;
-    font-weight: 500 !important;
-    padding: 0.75rem 1rem !important;
-    text-align: center !important;
-    text-decoration: none !important;
-    transition: all 0.2s ease !important;
+/* Style page_link as footer link (not a button) */
+.nav-card-link {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(0,0,0,0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border-radius: 0 0 16px 16px;
 }
-[data-testid="stPageLink-NavLink"]:hover {
-    opacity: 0.9 !important;
+.nav-card-link:hover {
+    background: rgba(0,0,0,0.02);
+}
+.nav-card-link:hover .link-text.green { color: #2E7D32; }
+.nav-card-link:hover .link-text.blue { color: #1976D2; }
+.nav-card-link:hover .arrow { transform: translateX(4px); }
+.link-text {
+    font-size: 0.68rem;
+    color: #8B95A1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+.nav-card-link .arrow {
+    font-weight: 600;
+    font-size: 1.1rem;
+    transition: transform 0.2s ease;
+}
+
+/* Hide default page_link styling, make it cover the footer */
+[data-testid="stPageLink-NavLink"] {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 48px !important;
+    opacity: 0 !important;
+    cursor: pointer !important;
+    z-index: 10 !important;
+    border-radius: 0 0 16px 16px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -242,13 +274,13 @@ with col_left:
                 <p>View 8-week ML predictions with P10/P50/P90 intervals for TRR, TRP, and NET.</p>
             </div>
         </div>
-        <div class="nav-card-footer">
-            <span>Operations View</span>
+        <div class="nav-card-link">
+            <span class="link-text green">Operations View</span>
             <span class="arrow green">→</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link("pages/1_Latest_Forecast.py", label="Open Forecast", use_container_width=True)
+    st.page_link("pages/1_Latest_Forecast.py", label=" ", use_container_width=True)
 
 with col_right:
     st.markdown("""
@@ -262,13 +294,13 @@ with col_right:
                 <p>Compare ML vs LP accuracy, view historical performance, and explore backtest results.</p>
             </div>
         </div>
-        <div class="nav-card-footer">
-            <span>Analytics View</span>
+        <div class="nav-card-link">
+            <span class="link-text blue">Analytics View</span>
             <span class="arrow blue">→</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link("pages/2_Performance_Dashboard.py", label="Open Dashboard", use_container_width=True)
+    st.page_link("pages/2_Performance_Dashboard.py", label=" ", use_container_width=True)
 
 st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
 
