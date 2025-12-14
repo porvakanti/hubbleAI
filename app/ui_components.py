@@ -375,6 +375,13 @@ h4 { font-size: 1rem; }
     padding: 1rem 1.25rem;
     margin: 1rem 0;
     border-left: 4px solid var(--accent-green);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    transition: all 0.25s ease;
+}
+
+.interpretation-box:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
 }
 
 .interpretation-box h4 {
@@ -453,6 +460,14 @@ h4 { font-size: 1rem; }
     border-radius: var(--radius-md);
     overflow: hidden;
     border: 1px solid var(--border-light);
+    background: var(--bg-white);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    transition: all 0.25s ease;
+}
+
+[data-testid="stDataFrame"]:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
 }
 
 [data-testid="stDataFrame"] table {
@@ -565,9 +580,23 @@ h4 { font-size: 1rem; }
    CHARTS
    ============================================ */
 
-[data-testid="stArrowVegaLiteChart"] {
+[data-testid="stArrowVegaLiteChart"],
+[data-testid="stPlotlyChart"],
+.stPlotlyChart {
+    background: var(--bg-white);
     border-radius: var(--radius-md);
     overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--border-light);
+    padding: 0.5rem;
+    transition: all 0.25s ease;
+}
+
+[data-testid="stArrowVegaLiteChart"]:hover,
+[data-testid="stPlotlyChart"]:hover,
+.stPlotlyChart:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
 }
 
 /* ============================================

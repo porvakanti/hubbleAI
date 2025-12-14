@@ -104,8 +104,21 @@ def get_ml_data_for_view(df: pd.DataFrame, lg: str, horizon: int) -> pd.DataFram
         return filtered[filtered["liquidity_group"] == lg]
 
 
-def create_wape_line_chart(df_wape: pd.DataFrame, title: str) -> go.Figure:
-    """Create a line chart comparing ML vs LP WAPE over time."""
+# WAPE targets by horizon (TRR/TRP/NET)
+WAPE_TARGETS = {
+    1: 5.0,
+    2: 7.5,
+    3: 10.0,
+    4: 12.5,
+    5: 15.0,
+    6: 17.5,
+    7: 20.0,
+    8: 22.5,
+}
+
+
+def create_wape_line_chart(df_wape: pd.DataFrame, title: str, horizon: int = 1) -> go.Figure:
+    """Create a line chart comparing ML vs LP WAPE over time with target line."""
     if df_wape.empty:
         return go.Figure()
 
@@ -114,6 +127,17 @@ def create_wape_line_chart(df_wape: pd.DataFrame, title: str) -> go.Figure:
     df = df.sort_values("week_start")
 
     fig = go.Figure()
+
+    # Target line (horizontal) - Nogaro blue
+    target_wape = WAPE_TARGETS.get(horizon, 10.0)
+    fig.add_trace(go.Scatter(
+        x=[df["week_start"].min(), df["week_start"].max()],
+        y=[target_wape, target_wape],
+        mode="lines",
+        name=f"Target ({target_wape}%)",
+        line=dict(color="#2C5AA0", width=2, dash="dot"),
+        hovertemplate=f"Target: {target_wape}%<extra></extra>"
+    ))
 
     # ML line
     fig.add_trace(go.Scatter(
@@ -177,11 +201,16 @@ def create_weekly_comparison_table(df_wape: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_week_explorer_chart(week_data: pd.DataFrame, selected_view: str) -> go.Figure:
-    """Create grouped bar chart for week explorer."""
+    """Create grouped bar chart for week explorer with P10/P90 error bars on ML."""
     if week_data.empty:
         return go.Figure()
 
     fig = go.Figure()
+    range_color = "#2C5AA0"  # Nogaro blue for error bars
+
+    # Check if we have quantile data
+    has_quantiles = ("ML P10 (M)" in week_data.columns and "ML P90 (M)" in week_data.columns
+                     and week_data["ML P10 (M)"].notna().any() and week_data["ML P90 (M)"].notna().any())
 
     # Actual
     fig.add_trace(go.Bar(
@@ -192,14 +221,44 @@ def create_week_explorer_chart(week_data: pd.DataFrame, selected_view: str) -> g
         hovertemplate="<b>%{x}</b><br>Actual: %{y:.2f}M EUR<extra></extra>"
     ))
 
-    # ML
-    fig.add_trace(go.Bar(
-        x=week_data["Horizon"],
-        y=week_data["ML Pred (M)"],
-        name="ML",
-        marker_color="#2E7D32",
-        hovertemplate="<b>%{x}</b><br>ML: %{y:.2f}M EUR<extra></extra>"
-    ))
+    # ML with error bars if quantiles available
+    if has_quantiles:
+        ml_pred = week_data["ML Pred (M)"].values
+        p10_vals = week_data["ML P10 (M)"].values
+        p90_vals = week_data["ML P90 (M)"].values
+
+        # Handle NaN by using prediction as fallback
+        p10_vals = np.where(np.isnan(p10_vals), ml_pred, p10_vals)
+        p90_vals = np.where(np.isnan(p90_vals), ml_pred, p90_vals)
+
+        error_minus = ml_pred - p10_vals
+        error_plus = p90_vals - ml_pred
+
+        fig.add_trace(go.Bar(
+            x=week_data["Horizon"],
+            y=ml_pred,
+            name="ML",
+            marker_color="#2E7D32",
+            error_y=dict(
+                type="data",
+                symmetric=False,
+                array=error_plus,
+                arrayminus=error_minus,
+                color=range_color,
+                thickness=2,
+                width=6,
+            ),
+            hovertemplate="<b>%{x}</b><br>ML: %{y:.2f}M<br>P10: %{customdata[0]:.2f}M<br>P90: %{customdata[1]:.2f}M<extra></extra>",
+            customdata=list(zip(p10_vals, p90_vals))
+        ))
+    else:
+        fig.add_trace(go.Bar(
+            x=week_data["Horizon"],
+            y=week_data["ML Pred (M)"],
+            name="ML",
+            marker_color="#2E7D32",
+            hovertemplate="<b>%{x}</b><br>ML: %{y:.2f}M EUR<extra></extra>"
+        ))
 
     # LP (if available)
     if "LP Pred (M)" in week_data.columns:
@@ -389,9 +448,10 @@ else:
 
     with chart_col:
         chart_title = f"{selected_view} H{selected_horizon} - ML vs LP WAPE Over Time"
-        fig = create_wape_line_chart(df_wape, chart_title)
+        fig = create_wape_line_chart(df_wape, chart_title, horizon=selected_horizon)
         st.plotly_chart(fig, use_container_width=True)
-        st.caption("Lower WAPE = Better accuracy. Dashed line = LP baseline.")
+        target_pct = WAPE_TARGETS.get(selected_horizon, 10.0)
+        st.caption(f"Lower WAPE = Better accuracy. Target: {target_pct}% (dotted blue). LP baseline: dashed orange.")
 
     with table_col:
         display_table = create_weekly_comparison_table(df_wape)
@@ -467,10 +527,13 @@ if "week_start" in bt_df.columns:
                 actual = subset["actual_value"].sum() if "actual_value" in subset.columns else 0
 
                 # ML prediction: use hybrid for TRP H1-4, point otherwise
+                # Also extract P10/P90 quantiles
                 if explorer_view == "TRP" and h <= 4 and "y_pred_hybrid" in subset.columns:
                     ml_pred = subset["y_pred_hybrid"].sum()
                     if pd.isna(ml_pred):
                         ml_pred = subset["y_pred_point"].sum()
+                    ml_p10 = subset["y_pred_p10"].sum() if "y_pred_p10" in subset.columns and subset["y_pred_p10"].notna().any() else None
+                    ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
                 elif explorer_view == "NET":
                     # For NET: sum TRR point + TRP hybrid/point
                     trr_data = subset[subset["liquidity_group"] == "TRR"]
@@ -485,8 +548,18 @@ if "week_start" in bt_df.columns:
                         trp_ml = trp_data["y_pred_point"].sum() if "y_pred_point" in trp_data.columns else 0
 
                     ml_pred = trr_ml + trp_ml
+
+                    # Quantiles for NET (sum of both LGs)
+                    trr_p10 = trr_data["y_pred_p10"].sum() if "y_pred_p10" in trr_data.columns and trr_data["y_pred_p10"].notna().any() else 0
+                    trr_p90 = trr_data["y_pred_p90"].sum() if "y_pred_p90" in trr_data.columns and trr_data["y_pred_p90"].notna().any() else 0
+                    trp_p10 = trp_data["y_pred_p10"].sum() if "y_pred_p10" in trp_data.columns and trp_data["y_pred_p10"].notna().any() else 0
+                    trp_p90 = trp_data["y_pred_p90"].sum() if "y_pred_p90" in trp_data.columns and trp_data["y_pred_p90"].notna().any() else 0
+                    ml_p10 = (trr_p10 + trp_p10) if (trr_p10 != 0 or trp_p10 != 0) else None
+                    ml_p90 = (trr_p90 + trp_p90) if (trr_p90 != 0 or trp_p90 != 0) else None
                 else:
                     ml_pred = subset["y_pred_point"].sum() if "y_pred_point" in subset.columns else 0
+                    ml_p10 = subset["y_pred_p10"].sum() if "y_pred_p10" in subset.columns and subset["y_pred_p10"].notna().any() else None
+                    ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
 
                 lp_pred = subset["lp_baseline_point"].sum() if "lp_baseline_point" in subset.columns else float("nan")
 
@@ -519,6 +592,8 @@ if "week_start" in bt_df.columns:
                     "Target Week": str(target)[:10] if pd.notna(target) else "-",
                     "Actual (M)": actual / 1e6,
                     "ML Pred (M)": ml_pred / 1e6,
+                    "ML P10 (M)": ml_p10 / 1e6 if ml_p10 is not None else None,
+                    "ML P90 (M)": ml_p90 / 1e6 if ml_p90 is not None else None,
                     "LP Pred (M)": lp_pred / 1e6 if pd.notna(lp_pred) else None,
                     "ML WAPE": ml_wape,
                     "LP WAPE": lp_wape,
@@ -536,9 +611,16 @@ if "week_start" in bt_df.columns:
                     display_exp = explorer_df.copy()
                     display_exp["Actual (M)"] = display_exp["Actual (M)"].apply(lambda x: f"{x:.2f}")
                     display_exp["ML Pred (M)"] = display_exp["ML Pred (M)"].apply(lambda x: f"{x:.2f}")
+                    display_exp["ML P10 (M)"] = display_exp["ML P10 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+                    display_exp["ML P90 (M)"] = display_exp["ML P90 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
                     display_exp["LP Pred (M)"] = display_exp["LP Pred (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
                     display_exp["ML WAPE"] = display_exp["ML WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
                     display_exp["LP WAPE"] = display_exp["LP WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
+
+                    # Reorder columns for better readability
+                    col_order = ["Horizon", "Target Week", "Actual (M)", "ML Pred (M)", "ML P10 (M)", "ML P90 (M)", "LP Pred (M)", "ML WAPE", "LP WAPE", "Winner"]
+                    col_order = [c for c in col_order if c in display_exp.columns]
+                    display_exp = display_exp[col_order]
 
                     st.dataframe(
                         display_exp,
