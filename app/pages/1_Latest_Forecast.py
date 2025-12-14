@@ -146,48 +146,59 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
 
     fig = go.Figure()
 
-    # ML Prediction bars
-    fig.add_trace(go.Bar(
-        x=table_df["Horizon"],
-        y=table_df["Prediction (M)"],
-        name="ML Prediction",
-        marker_color=color,
-        text=[f"{v:.1f}M" for v in table_df["Prediction (M)"]],
-        textposition="outside",
-        hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M EUR<extra></extra>"
-    ))
+    predictions = table_df["Prediction (M)"].values
 
-    # Add P10/P90 range if available
-    if "P10 (M)" in table_df.columns and "P90 (M)" in table_df.columns:
-        p10_vals = table_df["P10 (M)"].fillna(table_df["Prediction (M)"])
-        p90_vals = table_df["P90 (M)"].fillna(table_df["Prediction (M)"])
+    # Check if we have P10/P90 data
+    has_quantiles = ("P10 (M)" in table_df.columns and "P90 (M)" in table_df.columns
+                     and table_df["P10 (M)"].notna().any() and table_df["P90 (M)"].notna().any())
 
-        fig.add_trace(go.Scatter(
+    if has_quantiles:
+        p10_vals = table_df["P10 (M)"].fillna(predictions).values
+        p90_vals = table_df["P90 (M)"].fillna(predictions).values
+
+        # Calculate error bar values (distance from prediction)
+        error_minus = predictions - p10_vals  # Distance down to P10
+        error_plus = p90_vals - predictions   # Distance up to P90
+
+        # ML Prediction bars with error bars
+        fig.add_trace(go.Bar(
             x=table_df["Horizon"],
-            y=p90_vals,
-            mode="markers",
-            marker=dict(symbol="line-ew", size=12, color=color, opacity=0.5),
-            name="P90 (High)",
-            hovertemplate="P90: %{y:.2f}M EUR<extra></extra>"
+            y=predictions,
+            name="ML Prediction",
+            marker_color=color,
+            text=[f"{v:.1f}M" for v in predictions],
+            textposition="outside",
+            error_y=dict(
+                type="data",
+                symmetric=False,
+                array=error_plus,
+                arrayminus=error_minus,
+                color=color,
+                thickness=1.5,
+                width=6,
+            ),
+            hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M<br>P10: %{customdata[0]:.2f}M<br>P90: %{customdata[1]:.2f}M<extra></extra>",
+            customdata=list(zip(p10_vals, p90_vals))
         ))
-
-        fig.add_trace(go.Scatter(
+    else:
+        # ML Prediction bars without error bars
+        fig.add_trace(go.Bar(
             x=table_df["Horizon"],
-            y=p10_vals,
-            mode="markers",
-            marker=dict(symbol="line-ew", size=12, color=color, opacity=0.5),
-            name="P10 (Low)",
-            hovertemplate="P10: %{y:.2f}M EUR<extra></extra>"
+            y=predictions,
+            name="ML Prediction",
+            marker_color=color,
+            text=[f"{v:.1f}M" for v in predictions],
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M EUR<extra></extra>"
         ))
 
     fig.update_layout(
         title=dict(text=title, font=dict(size=14)),
         xaxis_title="Horizon",
         yaxis_title="EUR (Millions)",
-        height=350,
+        height=380,
         margin=dict(t=50, b=50, l=60, r=20),
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        showlegend=False,
         plot_bgcolor="white",
         paper_bgcolor="white",
     )
@@ -378,6 +389,87 @@ if missing_cols:
     st.error(f"Missing columns: {missing_cols}")
     st.stop()
 
+# ---------------------------------------------------------------------------
+# NET Summary Score Cards (computed early for display)
+# ---------------------------------------------------------------------------
+
+# Compute NET totals for score cards
+net_summary_table = create_horizon_table(df, "NET")
+if not net_summary_table.empty:
+    total_prediction = net_summary_table["Prediction (M)"].sum()
+    total_p10 = net_summary_table["P10 (M)"].sum() if "P10 (M)" in net_summary_table.columns and net_summary_table["P10 (M)"].notna().any() else None
+    total_p90 = net_summary_table["P90 (M)"].sum() if "P90 (M)" in net_summary_table.columns and net_summary_table["P90 (M)"].notna().any() else None
+
+    # Determine risk level
+    if total_p10 is not None and total_p10 < 0 and total_prediction > 0:
+        risk_level = "Moderate"
+        risk_color = "#F57C00"  # Orange
+        risk_icon = "⚠️"
+    elif total_prediction < 0:
+        risk_level = "High"
+        risk_color = "#D32F2F"  # Red
+        risk_icon = "🔴"
+    else:
+        risk_level = "Low"
+        risk_color = "#2E7D32"  # Green
+        risk_icon = "🟢"
+
+    # Score cards row
+    card_col1, card_col2, card_col3, card_col4 = st.columns(4)
+
+    with card_col1:
+        pred_color = "#2E7D32" if total_prediction >= 0 else "#D32F2F"
+        pred_label = "Surplus" if total_prediction >= 0 else "Deficit"
+        st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
+            <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📊</div>
+            <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">NET Outlook</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: {pred_color};">{total_prediction:.0f}M</div>
+            <div style="font-size: 0.8rem; color: {pred_color};">{pred_label}</div>
+        </div>''', unsafe_allow_html=True)
+
+    with card_col2:
+        if total_p10 is not None:
+            p10_color = "#D32F2F" if total_p10 < 0 else "#2E7D32"
+            st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
+                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📉</div>
+                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: {p10_color};">{total_p10:.0f}M</div>
+                <div style="font-size: 0.8rem; color: #5A6169;">Bad case</div>
+            </div>''', unsafe_allow_html=True)
+        else:
+            st.markdown('''<div class="hubble-card" style="text-align: center; padding: 1rem;">
+                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📉</div>
+                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #9E9E9E;">N/A</div>
+                <div style="font-size: 0.8rem; color: #5A6169;">Not available</div>
+            </div>''', unsafe_allow_html=True)
+
+    with card_col3:
+        if total_p90 is not None:
+            st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
+                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📈</div>
+                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #2E7D32;">{total_p90:.0f}M</div>
+                <div style="font-size: 0.8rem; color: #5A6169;">Good case</div>
+            </div>''', unsafe_allow_html=True)
+        else:
+            st.markdown('''<div class="hubble-card" style="text-align: center; padding: 1rem;">
+                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📈</div>
+                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #9E9E9E;">N/A</div>
+                <div style="font-size: 0.8rem; color: #5A6169;">Not available</div>
+            </div>''', unsafe_allow_html=True)
+
+    with card_col4:
+        st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
+            <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">{risk_icon}</div>
+            <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Risk Level</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: {risk_color};">{risk_level}</div>
+            <div style="font-size: 0.8rem; color: #5A6169;">8-week outlook</div>
+        </div>''', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
 # Section 1: Treasury Definitions
 st.markdown(render_interpretation_box(
     title="How to Interpret These Forecasts",
@@ -483,24 +575,54 @@ with tab_net:
 
         with col_chart:
             # NET chart with colors for positive/negative
-            colors = ["#2E7D32" if v >= 0 else "#D32F2F" for v in net_table["Prediction (M)"]]
+            predictions = net_table["Prediction (M)"].values
+            colors = ["#2E7D32" if v >= 0 else "#D32F2F" for v in predictions]
             fig = go.Figure()
 
-            fig.add_trace(go.Bar(
-                x=net_table["Horizon"],
-                y=net_table["Prediction (M)"],
-                marker_color=colors,
-                text=[f"{v:.1f}M" for v in net_table["Prediction (M)"]],
-                textposition="outside",
-                hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M EUR<extra></extra>"
-            ))
+            # Check if we have P10/P90 data
+            has_quantiles = ("P10 (M)" in net_table.columns and "P90 (M)" in net_table.columns
+                             and net_table["P10 (M)"].notna().any() and net_table["P90 (M)"].notna().any())
+
+            if has_quantiles:
+                p10_vals = net_table["P10 (M)"].fillna(predictions).values
+                p90_vals = net_table["P90 (M)"].fillna(predictions).values
+                error_minus = predictions - p10_vals
+                error_plus = p90_vals - predictions
+
+                fig.add_trace(go.Bar(
+                    x=net_table["Horizon"],
+                    y=predictions,
+                    marker_color=colors,
+                    text=[f"{v:.1f}M" for v in predictions],
+                    textposition="outside",
+                    error_y=dict(
+                        type="data",
+                        symmetric=False,
+                        array=error_plus,
+                        arrayminus=error_minus,
+                        color="#666666",
+                        thickness=1.5,
+                        width=6,
+                    ),
+                    hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M<br>P10: %{customdata[0]:.2f}M<br>P90: %{customdata[1]:.2f}M<extra></extra>",
+                    customdata=list(zip(p10_vals, p90_vals))
+                ))
+            else:
+                fig.add_trace(go.Bar(
+                    x=net_table["Horizon"],
+                    y=predictions,
+                    marker_color=colors,
+                    text=[f"{v:.1f}M" for v in predictions],
+                    textposition="outside",
+                    hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M EUR<extra></extra>"
+                ))
 
             fig.update_layout(
                 title=dict(text="NET Position by Horizon", font=dict(size=14)),
                 xaxis_title="Horizon",
                 yaxis_title="EUR (Millions)",
-                height=350,
-                margin=dict(t=50, b=50, l=60, r=20),
+                height=400,
+                margin=dict(t=60, b=50, l=60, r=20),
                 showlegend=False,
                 plot_bgcolor="white",
                 paper_bgcolor="white",
