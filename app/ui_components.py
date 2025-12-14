@@ -984,6 +984,7 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
             ("Overview", "streamlit_app.py"),
             ("Cash Flows", "pages/1_Latest_Forecast.py"),
             ("Analytics", "pages/2_Performance_Dashboard.py"),
+            ("Backtest Explorer", "pages/3_Backtest_Explorer.py"),
         ]
 
         for label, page_path in nav_items:

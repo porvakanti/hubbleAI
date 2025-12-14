@@ -3,8 +3,8 @@ Page 2 - Performance Dashboard (Analytics View)
 
 Shows:
 - ML vs LP performance comparison
-- Weekly WAPE trends
-- Backtest week explorer
+- Weekly WAPE trends with target lines
+- Quantile calibration metrics
 
 Design: Modern, warm cream palette using shared UI components.
 
@@ -200,96 +200,6 @@ def create_weekly_comparison_table(df_wape: pd.DataFrame) -> pd.DataFrame:
     return display_df
 
 
-def create_week_explorer_chart(week_data: pd.DataFrame, selected_view: str) -> go.Figure:
-    """Create grouped bar chart for week explorer with P10/P90 error bars on ML."""
-    if week_data.empty:
-        return go.Figure()
-
-    fig = go.Figure()
-    range_color = "#2C5AA0"  # Nogaro blue for error bars
-
-    # Check if we have quantile data
-    has_quantiles = ("ML P10 (M)" in week_data.columns and "ML P90 (M)" in week_data.columns
-                     and week_data["ML P10 (M)"].notna().any() and week_data["ML P90 (M)"].notna().any())
-
-    # Actual
-    fig.add_trace(go.Bar(
-        x=week_data["Horizon"],
-        y=week_data["Actual (M)"],
-        name="Actual",
-        marker_color="#2D3436",
-        hovertemplate="<b>%{x}</b><br>Actual: %{y:.2f}M EUR<extra></extra>"
-    ))
-
-    # ML with error bars if quantiles available
-    if has_quantiles:
-        ml_pred = week_data["ML Pred (M)"].values
-        p10_vals = week_data["ML P10 (M)"].values
-        p90_vals = week_data["ML P90 (M)"].values
-
-        # Handle NaN by using prediction as fallback
-        p10_vals = np.where(np.isnan(p10_vals), ml_pred, p10_vals)
-        p90_vals = np.where(np.isnan(p90_vals), ml_pred, p90_vals)
-
-        error_minus = ml_pred - p10_vals
-        error_plus = p90_vals - ml_pred
-
-        fig.add_trace(go.Bar(
-            x=week_data["Horizon"],
-            y=ml_pred,
-            name="ML",
-            marker_color="#2E7D32",
-            error_y=dict(
-                type="data",
-                symmetric=False,
-                array=error_plus,
-                arrayminus=error_minus,
-                color=range_color,
-                thickness=2,
-                width=6,
-            ),
-            hovertemplate="<b>%{x}</b><br>ML: %{y:.2f}M<br>P10: %{customdata[0]:.2f}M<br>P90: %{customdata[1]:.2f}M<extra></extra>",
-            customdata=list(zip(p10_vals, p90_vals))
-        ))
-    else:
-        fig.add_trace(go.Bar(
-            x=week_data["Horizon"],
-            y=week_data["ML Pred (M)"],
-            name="ML",
-            marker_color="#2E7D32",
-            hovertemplate="<b>%{x}</b><br>ML: %{y:.2f}M EUR<extra></extra>"
-        ))
-
-    # LP (if available)
-    if "LP Pred (M)" in week_data.columns:
-        lp_vals = week_data["LP Pred (M)"].dropna()
-        if not lp_vals.empty:
-            fig.add_trace(go.Bar(
-                x=week_data["Horizon"],
-                y=week_data["LP Pred (M)"],
-                name="LP",
-                marker_color="#F57C00",
-                hovertemplate="<b>%{x}</b><br>LP: %{y:.2f}M EUR<extra></extra>"
-            ))
-
-    fig.update_layout(
-        title=dict(text=f"{selected_view} by Horizon", font=dict(size=14)),
-        xaxis_title="Horizon",
-        yaxis_title="EUR (Millions)",
-        barmode="group",
-        height=350,
-        margin=dict(t=50, b=50, l=60, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-    )
-
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)")
-
-    return fig
-
-
 # ---------------------------------------------------------------------------
 # Main Content
 # ---------------------------------------------------------------------------
@@ -475,213 +385,41 @@ else:
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# Backtest Week Explorer
+# Quantile Calibration
 # ---------------------------------------------------------------------------
 
-st.markdown('<div class="section-title">Backtest Week Explorer</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Quantile Calibration</div>', unsafe_allow_html=True)
 
 st.markdown(render_interpretation_box(
-    title="How to Use",
-    content="Select a historical week from the test set to see what the 8-week forecast (H1-H8) would have looked like. Compare Actual vs ML vs LP predictions for each horizon."
+    title="What is Quantile Calibration?",
+    content="""This checks if the predicted confidence intervals (P10/P50/P90) are accurate.
+    <strong>Ideal calibration:</strong> ~10% of actuals below P10, ~80% within P10-P90 band, ~10% above P90.
+    If calibration is off, it means the model's uncertainty estimates may not be trustworthy."""
 ), unsafe_allow_html=True)
 
-if "week_start" in bt_df.columns:
-    available_weeks = sorted(bt_df["week_start"].unique())
+quant_coverage = diagnostics.get("quantile_coverage_by_horizon") if diagnostics else None
 
-    if len(available_weeks) > 0:
-        explorer_col1, explorer_col2 = st.columns([2, 1])
-
-        with explorer_col1:
-            selected_week = st.selectbox(
-                "Select Reference Week",
-                available_weeks,
-                format_func=lambda x: str(x)[:10],
-                key="explorer_week"
-            )
-
-        with explorer_col2:
-            explorer_view_options = ["NET", "TRR", "TRP"]
-            explorer_view = st.selectbox("View", explorer_view_options, key="explorer_view")
-
-        # Filter to selected week
-        week_data = bt_df[bt_df["week_start"] == selected_week].copy()
-
-        if tier1_only and "is_pass_through" in week_data.columns:
-            week_data = week_data[week_data["is_pass_through"] == False]
-
-        if not week_data.empty:
-            # Build H1-H8 summary
-            explorer_rows = []
-            for h in range(1, 9):
-                h_data = week_data[week_data["horizon"] == h]
-
-                if explorer_view == "NET":
-                    subset = h_data
-                else:
-                    subset = h_data[h_data["liquidity_group"] == explorer_view]
-
-                if subset.empty:
-                    continue
-
-                # Sum values
-                actual = subset["actual_value"].sum() if "actual_value" in subset.columns else 0
-
-                # ML prediction: use hybrid for TRP H1-4, point otherwise
-                # Also extract P10/P90 quantiles
-                if explorer_view == "TRP" and h <= 4 and "y_pred_hybrid" in subset.columns:
-                    ml_pred = subset["y_pred_hybrid"].sum()
-                    if pd.isna(ml_pred):
-                        ml_pred = subset["y_pred_point"].sum()
-                    ml_p10 = subset["y_pred_p10"].sum() if "y_pred_p10" in subset.columns and subset["y_pred_p10"].notna().any() else None
-                    ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
-                elif explorer_view == "NET":
-                    # For NET: sum TRR point + TRP hybrid/point
-                    trr_data = subset[subset["liquidity_group"] == "TRR"]
-                    trp_data = subset[subset["liquidity_group"] == "TRP"]
-
-                    trr_ml = trr_data["y_pred_point"].sum() if "y_pred_point" in trr_data.columns else 0
-                    if h <= 4 and "y_pred_hybrid" in trp_data.columns:
-                        trp_ml = trp_data["y_pred_hybrid"].sum()
-                        if pd.isna(trp_ml):
-                            trp_ml = trp_data["y_pred_point"].sum()
-                    else:
-                        trp_ml = trp_data["y_pred_point"].sum() if "y_pred_point" in trp_data.columns else 0
-
-                    ml_pred = trr_ml + trp_ml
-
-                    # Quantiles for NET (sum of both LGs)
-                    trr_p10 = trr_data["y_pred_p10"].sum() if "y_pred_p10" in trr_data.columns and trr_data["y_pred_p10"].notna().any() else 0
-                    trr_p90 = trr_data["y_pred_p90"].sum() if "y_pred_p90" in trr_data.columns and trr_data["y_pred_p90"].notna().any() else 0
-                    trp_p10 = trp_data["y_pred_p10"].sum() if "y_pred_p10" in trp_data.columns and trp_data["y_pred_p10"].notna().any() else 0
-                    trp_p90 = trp_data["y_pred_p90"].sum() if "y_pred_p90" in trp_data.columns and trp_data["y_pred_p90"].notna().any() else 0
-                    ml_p10 = (trr_p10 + trp_p10) if (trr_p10 != 0 or trp_p10 != 0) else None
-                    ml_p90 = (trr_p90 + trp_p90) if (trr_p90 != 0 or trp_p90 != 0) else None
-                else:
-                    ml_pred = subset["y_pred_point"].sum() if "y_pred_point" in subset.columns else 0
-                    ml_p10 = subset["y_pred_p10"].sum() if "y_pred_p10" in subset.columns and subset["y_pred_p10"].notna().any() else None
-                    ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
-
-                lp_pred = subset["lp_baseline_point"].sum() if "lp_baseline_point" in subset.columns else float("nan")
-
-                # Get target week
-                target = subset["target_week_start"].iloc[0] if "target_week_start" in subset.columns else None
-
-                # Compute WAPE (with guardrail)
-                eps = WAPE_EPS_THRESHOLD
-                if abs(actual) >= eps:
-                    ml_wape = abs(actual - ml_pred) / abs(actual)
-                    lp_wape = abs(actual - lp_pred) / abs(actual) if pd.notna(lp_pred) and h <= 4 else float("nan")
-                else:
-                    ml_wape = float("nan")
-                    lp_wape = float("nan")
-
-                # Determine winner
-                if pd.isna(ml_wape):
-                    winner = "N/A"
-                elif pd.isna(lp_wape):
-                    winner = "ML"
-                elif abs(ml_wape - lp_wape) < 0.001:
-                    winner = "Tie"
-                elif ml_wape < lp_wape:
-                    winner = "ML"
-                else:
-                    winner = "LP"
-
-                explorer_rows.append({
-                    "Horizon": f"H{h}",
-                    "Target Week": str(target)[:10] if pd.notna(target) else "-",
-                    "Actual (M)": actual / 1e6,
-                    "ML Pred (M)": ml_pred / 1e6,
-                    "ML P10 (M)": ml_p10 / 1e6 if ml_p10 is not None else None,
-                    "ML P90 (M)": ml_p90 / 1e6 if ml_p90 is not None else None,
-                    "LP Pred (M)": lp_pred / 1e6 if pd.notna(lp_pred) else None,
-                    "ML WAPE": ml_wape,
-                    "LP WAPE": lp_wape,
-                    "Winner": winner,
-                })
-
-            if explorer_rows:
-                explorer_df = pd.DataFrame(explorer_rows)
-
-                # Format table for display (full width)
-                display_exp = explorer_df.copy()
-                display_exp["Actual (M)"] = display_exp["Actual (M)"].apply(lambda x: f"{x:.2f}")
-                display_exp["ML Pred (M)"] = display_exp["ML Pred (M)"].apply(lambda x: f"{x:.2f}")
-                display_exp["ML P10 (M)"] = display_exp["ML P10 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
-                display_exp["ML P90 (M)"] = display_exp["ML P90 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
-                display_exp["LP Pred (M)"] = display_exp["LP Pred (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
-                display_exp["ML WAPE"] = display_exp["ML WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
-                display_exp["LP WAPE"] = display_exp["LP WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
-
-                # Reorder columns for better readability
-                col_order = ["Horizon", "Target Week", "Actual (M)", "ML Pred (M)", "ML P10 (M)", "ML P90 (M)", "LP Pred (M)", "ML WAPE", "LP WAPE", "Winner"]
-                col_order = [c for c in col_order if c in display_exp.columns]
-                display_exp = display_exp[col_order]
-
-                st.dataframe(
-                    display_exp,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=340,
-                )
-
-                # Chart (full width below table)
-                fig = create_week_explorer_chart(explorer_df, explorer_view)
-                st.plotly_chart(fig, use_container_width=True)
-
-                # Summary
-                ml_wins_exp = (explorer_df["Winner"] == "ML").sum()
-                lp_wins_exp = (explorer_df["Winner"] == "LP").sum()
-                valid_exp = len(explorer_df[explorer_df["Winner"] != "N/A"])
-
-                st.markdown(f"""
-                <div class="interpretation-box">
-                    <h4>Week {str(selected_week)[:10]} Summary ({explorer_view})</h4>
-                    <p>ML outperformed LP in <strong>{ml_wins_exp}</strong> of <strong>{valid_exp}</strong> horizons.</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("No data for selected week/view combination.")
-        else:
-            st.info("No data for selected week.")
-    else:
-        st.info("No weeks available in backtest data.")
-else:
-    st.info("week_start column not found in backtest data.")
-
-# ---------------------------------------------------------------------------
-# Quantile Calibration (Secondary, only if available)
-# ---------------------------------------------------------------------------
-
-quant_coverage = diagnostics.get("quantile_coverage_by_horizon")
 if quant_coverage is not None and not quant_coverage.empty:
-    st.markdown("---")
+    coverage_display = quant_coverage.copy()
+    coverage_display["Horizon"] = coverage_display["horizon"].apply(lambda x: f"H{x}")
 
-    with st.expander("Quantile Calibration (P10/P50/P90)", expanded=False):
-        st.markdown("""
-        <p style="color: #5A6169; font-size: 0.85rem; margin-bottom: 1rem;">
-        Ideal calibration: ~10% below P10, ~80% in P10-P90 band, ~10% above P90.
-        </p>
-        """, unsafe_allow_html=True)
+    for col in ["prob_below_p10", "prob_between_p10_p90", "prob_above_p90"]:
+        if col in coverage_display.columns:
+            coverage_display[col] = coverage_display[col].apply(lambda x: f"{x*100:.1f}%")
 
-        coverage_display = quant_coverage.copy()
-        coverage_display["Horizon"] = coverage_display["horizon"].apply(lambda x: f"H{x}")
+    coverage_display = coverage_display.rename(columns={
+        "prob_below_p10": "Below P10",
+        "prob_between_p10_p90": "P10-P90 Band",
+        "prob_above_p90": "Above P90",
+        "n": "N Samples"
+    })
 
-        for col in ["prob_below_p10", "prob_between_p10_p90", "prob_above_p90"]:
-            if col in coverage_display.columns:
-                coverage_display[col] = coverage_display[col].apply(lambda x: f"{x*100:.1f}%")
+    display_cols = ["Horizon", "N Samples", "Below P10", "P10-P90 Band", "Above P90"]
+    display_cols = [c for c in display_cols if c in coverage_display.columns]
 
-        coverage_display = coverage_display.rename(columns={
-            "prob_below_p10": "Below P10",
-            "prob_between_p10_p90": "P10-P90 Band",
-            "prob_above_p90": "Above P90",
-            "n": "N Samples"
-        })
-
-        display_cols = ["Horizon", "N Samples", "Below P10", "P10-P90 Band", "Above P90"]
-        display_cols = [c for c in display_cols if c in coverage_display.columns]
-
-        st.dataframe(coverage_display[display_cols], hide_index=True, use_container_width=True)
+    st.dataframe(coverage_display[display_cols], hide_index=True, use_container_width=True, height=340)
+else:
+    st.info("Quantile calibration data is not available. This may be because quantile predictions (P10/P50/P90) were not generated during the backtest run.")
 
 # ---------------------------------------------------------------------------
 # Footer
