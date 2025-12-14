@@ -378,7 +378,7 @@ if missing_cols:
     st.error(f"Missing columns: {missing_cols}")
     st.stop()
 
-# Treasury Interpretation Box
+# Section 1: Treasury Definitions
 st.markdown(render_interpretation_box(
     title="How to Interpret These Forecasts",
     content="""
@@ -386,11 +386,22 @@ st.markdown(render_interpretation_box(
         <li><strong>TRR (Treasury Receipts):</strong> Expected cash inflows from operations</li>
         <li><strong>TRP (Treasury Payments):</strong> Expected cash outflows for payments</li>
         <li><strong>NET:</strong> Net cash position (TRR + TRP). Positive = surplus, Negative = deficit</li>
-        <li><strong>P10/P90:</strong> 80% confidence interval — actual values are expected to fall within this range 80% of the time</li>
     </ul>
-    <p style="margin-top: 0.5rem;"><strong>Reading the range:</strong> The <em>Prediction</em> column shows the most likely outcome.
-    A wide P10-P90 spread indicates higher uncertainty. When P10 is negative but Prediction is positive,
-    there's downside risk — maintain adequate liquidity buffers while planning for the expected surplus.</p>
+    """
+), unsafe_allow_html=True)
+
+# Section 2: Understanding the Numbers
+st.markdown(render_interpretation_box(
+    title="Understanding the Numbers",
+    content="""
+    <ul style="margin: 0; padding-left: 1.25rem;">
+        <li><strong>Prediction</strong> — Our best estimate (most likely outcome)</li>
+        <li><strong>P10</strong> — "Bad case" scenario (only 10% chance of being worse)</li>
+        <li><strong>P90</strong> — "Good case" scenario (only 10% chance of being better)</li>
+        <li><strong>Spread (P90 − P10)</strong> — Wide = high uncertainty, Narrow = high confidence</li>
+    </ul>
+    <p style="margin-top: 0.5rem;"><strong>Quick Guide:</strong> If Prediction is positive but P10 is negative,
+    you expect a surplus but have downside risk. Keep liquidity buffers while planning for the surplus.</p>
     """
 ), unsafe_allow_html=True)
 
@@ -499,15 +510,44 @@ with tab_net:
 
             st.plotly_chart(fig, use_container_width=True)
 
-        # NET interpretation summary
-        total_net = net_table["Prediction (M)"].sum()
-        direction = "surplus" if total_net > 0 else "deficit"
-        color = "#2E7D32" if total_net > 0 else "#D32F2F"
+        # Section 3: Dynamic Outlook Summary
+        total_prediction = net_table["Prediction (M)"].sum()
+        total_p10 = net_table["P10 (M)"].sum() if "P10 (M)" in net_table.columns and net_table["P10 (M)"].notna().any() else None
+        total_p90 = net_table["P90 (M)"].sum() if "P90 (M)" in net_table.columns and net_table["P90 (M)"].notna().any() else None
+
+        # Determine outlook type and recommendation
+        if total_prediction >= 0:
+            outlook_word = "surplus"
+            outlook_color = "#2E7D32"
+        else:
+            outlook_word = "deficit"
+            outlook_color = "#D32F2F"
+
+        # Build dynamic recommendation
+        if total_p10 is not None and total_p10 < 0 and total_prediction > 0:
+            recommendation = f"Maintain liquidity buffer of ~{abs(total_p10):.0f}M while planning for the expected surplus."
+        elif total_prediction < 0:
+            recommendation = "Consider arranging short-term financing to cover the expected deficit."
+        else:
+            recommendation = "Position looks healthy. Continue monitoring weekly forecasts."
+
+        # Build the summary HTML
+        summary_lines = [f'<p><strong>Expected 8-week {outlook_word}:</strong> <span style="color: {outlook_color}; font-weight: 600;">{total_prediction:.2f}M EUR</span></p>']
+
+        if total_p10 is not None:
+            p10_color = "#D32F2F" if total_p10 < 0 else "#2E7D32"
+            p10_label = "potential deficit" if total_p10 < 0 else "surplus"
+            summary_lines.append(f'<p><strong>Downside risk (P10):</strong> <span style="color: {p10_color};">{total_p10:.2f}M EUR</span> {p10_label}</p>')
+
+        if total_p90 is not None:
+            summary_lines.append(f'<p><strong>Upside potential (P90):</strong> <span style="color: #2E7D32;">{total_p90:.2f}M EUR</span> surplus</p>')
+
+        summary_lines.append(f'<p style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(0,0,0,0.1);"><strong>→ Recommendation:</strong> {recommendation}</p>')
 
         st.markdown(f"""
         <div class="interpretation-box">
-            <h4>NET Position Summary</h4>
-            <p>Total projected NET over 8 weeks: <strong style="color: {color};">{total_net:.2f}M EUR</strong> ({direction})</p>
+            <h4>Your Outlook Summary</h4>
+            {''.join(summary_lines)}
         </div>
         """, unsafe_allow_html=True)
     else:
