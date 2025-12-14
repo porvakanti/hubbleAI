@@ -289,15 +289,31 @@ button[data-testid="baseButton-headerNoPadding"],
     background: var(--bg-white);
     border-radius: var(--radius-md);
     padding: 1.25rem;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     border: 1px solid var(--border-light);
     text-align: center;
+    transition: all 0.25s ease;
+}
+
+.score-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    transform: translateY(-3px);
+}
+
+/* Ensure hover works inside Streamlit markdown containers */
+[data-testid="stMarkdownContainer"] .score-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+    transform: translateY(-3px) !important;
 }
 
 .score-card-accent {
     background: linear-gradient(135deg, var(--accent-green) 0%, var(--accent-green-light) 100%);
     color: white;
     border: none;
+}
+
+.score-card-accent:hover {
+    box-shadow: 0 8px 32px rgba(46, 125, 50, 0.3);
 }
 
 .score-value {
