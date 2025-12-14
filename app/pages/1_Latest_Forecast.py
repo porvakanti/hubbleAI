@@ -386,10 +386,11 @@ st.markdown(render_interpretation_box(
         <li><strong>TRR (Treasury Receipts):</strong> Expected cash inflows from operations</li>
         <li><strong>TRP (Treasury Payments):</strong> Expected cash outflows for payments</li>
         <li><strong>NET:</strong> Net cash position (TRR + TRP). Positive = surplus, Negative = deficit</li>
-        <li><strong>P10/P90:</strong> 80% confidence interval. Actual is expected to fall between these values 80% of the time</li>
+        <li><strong>P10/P90:</strong> 80% confidence interval — actual values are expected to fall within this range 80% of the time</li>
     </ul>
-    <p style="margin-top: 0.5rem;"><strong>Action:</strong> If NET P10 is negative for upcoming weeks, consider arranging short-term financing.
-    If NET P90 is significantly positive, consider short-term investments.</p>
+    <p style="margin-top: 0.5rem;"><strong>Reading the range:</strong> The <em>Prediction</em> column shows the most likely outcome.
+    A wide P10-P90 spread indicates higher uncertainty. When P10 is negative but Prediction is positive,
+    there's downside risk — maintain adequate liquidity buffers while planning for the expected surplus.</p>
     """
 ), unsafe_allow_html=True)
 
