@@ -153,8 +153,11 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
                      and table_df["P10 (M)"].notna().any() and table_df["P90 (M)"].notna().any())
 
     if has_quantiles:
-        p10_vals = table_df["P10 (M)"].fillna(predictions).values
-        p90_vals = table_df["P90 (M)"].fillna(predictions).values
+        p10_raw = table_df["P10 (M)"].values
+        p90_raw = table_df["P90 (M)"].values
+        # Fill NaN values with predictions
+        p10_vals = np.where(np.isnan(p10_raw), predictions, p10_raw)
+        p90_vals = np.where(np.isnan(p90_raw), predictions, p90_raw)
 
         # Calculate error bar values (distance from prediction)
         error_minus = predictions - p10_vals  # Distance down to P10
@@ -404,15 +407,28 @@ if not net_summary_table.empty:
     if total_p10 is not None and total_p10 < 0 and total_prediction > 0:
         risk_level = "Moderate"
         risk_color = "#F57C00"  # Orange
-        risk_icon = "⚠️"
     elif total_prediction < 0:
         risk_level = "High"
         risk_color = "#D32F2F"  # Red
-        risk_icon = "🔴"
     else:
         risk_level = "Low"
         risk_color = "#2E7D32"  # Green
-        risk_icon = "🟢"
+
+    # CSS for score card icons
+    icon_style = '''
+    <style>
+    .score-icon {
+        width: 40px; height: 40px; border-radius: 10px; display: flex;
+        align-items: center; justify-content: center; margin: 0 auto 0.5rem auto;
+    }
+    .score-icon svg { stroke: white; }
+    .score-icon.green { background: linear-gradient(135deg, #2E7D32 0%, #4CAF50 100%); }
+    .score-icon.red { background: linear-gradient(135deg, #C62828 0%, #EF5350 100%); }
+    .score-icon.blue { background: linear-gradient(135deg, #1565C0 0%, #42A5F5 100%); }
+    .score-icon.orange { background: linear-gradient(135deg, #E65100 0%, #FF9800 100%); }
+    </style>
+    '''
+    st.markdown(icon_style, unsafe_allow_html=True)
 
     # Score cards row
     card_col1, card_col2, card_col3, card_col4 = st.columns(4)
@@ -420,52 +436,66 @@ if not net_summary_table.empty:
     with card_col1:
         pred_color = "#2E7D32" if total_prediction >= 0 else "#D32F2F"
         pred_label = "Surplus" if total_prediction >= 0 else "Deficit"
+        icon_class = "green" if total_prediction >= 0 else "red"
         st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-            <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📊</div>
-            <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">NET Outlook</div>
-            <div style="font-size: 1.5rem; font-weight: 700; color: {pred_color};">{total_prediction:.0f}M</div>
-            <div style="font-size: 0.8rem; color: {pred_color};">{pred_label}</div>
+            <div class="score-icon {icon_class}">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">NET Outlook</div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: {pred_color};">{total_prediction:.0f}M</div>
+            <div style="font-size: 0.75rem; color: {pred_color};">{pred_label}</div>
         </div>''', unsafe_allow_html=True)
 
     with card_col2:
         if total_p10 is not None:
             p10_color = "#D32F2F" if total_p10 < 0 else "#2E7D32"
             st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📉</div>
-                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: {p10_color};">{total_p10:.0f}M</div>
-                <div style="font-size: 0.8rem; color: #5A6169;">Bad case</div>
+                <div class="score-icon red">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 9l-9 9-4-4-5 5"/></svg>
+                </div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
+                <div style="font-size: 1.4rem; font-weight: 700; color: {p10_color};">{total_p10:.0f}M</div>
+                <div style="font-size: 0.75rem; color: #5A6169;">Conservative</div>
             </div>''', unsafe_allow_html=True)
         else:
             st.markdown('''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📉</div>
-                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: #9E9E9E;">N/A</div>
-                <div style="font-size: 0.8rem; color: #5A6169;">Not available</div>
+                <div class="score-icon red">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 9l-9 9-4-4-5 5"/></svg>
+                </div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
+                <div style="font-size: 1.4rem; font-weight: 700; color: #9E9E9E;">N/A</div>
+                <div style="font-size: 0.75rem; color: #5A6169;">Not available</div>
             </div>''', unsafe_allow_html=True)
 
     with card_col3:
         if total_p90 is not None:
             st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📈</div>
-                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: #2E7D32;">{total_p90:.0f}M</div>
-                <div style="font-size: 0.8rem; color: #5A6169;">Good case</div>
+                <div class="score-icon green">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 15l-9-9-4 4-5-5"/></svg>
+                </div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
+                <div style="font-size: 1.4rem; font-weight: 700; color: #2E7D32;">{total_p90:.0f}M</div>
+                <div style="font-size: 0.75rem; color: #5A6169;">Optimistic</div>
             </div>''', unsafe_allow_html=True)
         else:
             st.markdown('''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">📈</div>
-                <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: #9E9E9E;">N/A</div>
-                <div style="font-size: 0.8rem; color: #5A6169;">Not available</div>
+                <div class="score-icon green">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 15l-9-9-4 4-5-5"/></svg>
+                </div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
+                <div style="font-size: 1.4rem; font-weight: 700; color: #9E9E9E;">N/A</div>
+                <div style="font-size: 0.75rem; color: #5A6169;">Not available</div>
             </div>''', unsafe_allow_html=True)
 
     with card_col4:
+        icon_class = "green" if risk_level == "Low" else ("orange" if risk_level == "Moderate" else "red")
         st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-            <div style="font-size: 1.5rem; margin-bottom: 0.25rem;">{risk_icon}</div>
-            <div style="font-size: 0.75rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Risk Level</div>
-            <div style="font-size: 1.5rem; font-weight: 700; color: {risk_color};">{risk_level}</div>
-            <div style="font-size: 0.8rem; color: #5A6169;">8-week outlook</div>
+            <div class="score-icon {icon_class}">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Risk Level</div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: {risk_color};">{risk_level}</div>
+            <div style="font-size: 0.75rem; color: #5A6169;">8-week outlook</div>
         </div>''', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -584,8 +614,10 @@ with tab_net:
                              and net_table["P10 (M)"].notna().any() and net_table["P90 (M)"].notna().any())
 
             if has_quantiles:
-                p10_vals = net_table["P10 (M)"].fillna(predictions).values
-                p90_vals = net_table["P90 (M)"].fillna(predictions).values
+                p10_raw = net_table["P10 (M)"].values
+                p90_raw = net_table["P90 (M)"].values
+                p10_vals = np.where(np.isnan(p10_raw), predictions, p10_raw)
+                p90_vals = np.where(np.isnan(p90_raw), predictions, p90_raw)
                 error_minus = predictions - p10_vals
                 error_plus = p90_vals - predictions
 
