@@ -399,6 +399,29 @@ st.markdown(render_interpretation_box(
 
 quant_coverage = diagnostics.get("quantile_coverage_by_horizon") if diagnostics else None
 
+# If pre-computed file not available, compute on-the-fly from backtest data
+if (quant_coverage is None or quant_coverage.empty) and not bt_df.empty:
+    required_cols = ["horizon", "actual_value", "y_pred_p10", "y_pred_p90"]
+    if all(col in bt_df.columns for col in required_cols):
+        # Compute quantile calibration by horizon
+        calib_rows = []
+        for h in sorted(bt_df["horizon"].dropna().unique()):
+            h_data = bt_df[bt_df["horizon"] == h].dropna(subset=["actual_value", "y_pred_p10", "y_pred_p90"])
+            n = len(h_data)
+            if n > 0:
+                below_p10 = (h_data["actual_value"] < h_data["y_pred_p10"]).sum()
+                above_p90 = (h_data["actual_value"] > h_data["y_pred_p90"]).sum()
+                in_band = n - below_p10 - above_p90
+                calib_rows.append({
+                    "horizon": int(h),
+                    "n": n,
+                    "prob_below_p10": below_p10 / n,
+                    "prob_between_p10_p90": in_band / n,
+                    "prob_above_p90": above_p90 / n,
+                })
+        if calib_rows:
+            quant_coverage = pd.DataFrame(calib_rows)
+
 if quant_coverage is not None and not quant_coverage.empty:
     coverage_display = quant_coverage.copy()
     coverage_display["Horizon"] = coverage_display["horizon"].apply(lambda x: f"H{x}")
@@ -419,7 +442,14 @@ if quant_coverage is not None and not quant_coverage.empty:
 
     st.dataframe(coverage_display[display_cols], hide_index=True, use_container_width=True, height=340)
 else:
-    st.info("Quantile calibration data is not available. This may be because quantile predictions (P10/P50/P90) were not generated during the backtest run.")
+    st.warning("Quantile calibration data is not available.")
+    st.markdown("""
+    <div class="interpretation-box" style="background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); border-left-color: #F57C00;">
+        <h4 style="color: #E65100;">How to Generate This Data</h4>
+        <p>Quantile calibration requires P10/P90 prediction columns in the backtest data.
+        If these columns exist but no data is shown, there may be too many missing values.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Footer
