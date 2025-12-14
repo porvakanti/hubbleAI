@@ -419,7 +419,14 @@ if quant_coverage is not None and not quant_coverage.empty:
 
     st.dataframe(coverage_display[display_cols], hide_index=True, use_container_width=True, height=340)
 else:
-    st.info("Quantile calibration data is not available. This may be because quantile predictions (P10/P50/P90) were not generated during the backtest run.")
+    st.warning("Quantile calibration data is not available.")
+    st.markdown("""
+    <div class="interpretation-box" style="background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); border-left-color: #F57C00;">
+        <h4 style="color: #E65100;">How to Generate This Data</h4>
+        <p>To see quantile calibration metrics, run a <strong>new backtest</strong> from the Cash Flows page.
+        The backtest will compute how well the P10/P50/P90 predictions match actual outcomes.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Footer
