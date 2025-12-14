@@ -178,6 +178,12 @@ button[data-testid="baseButton-headerNoPadding"],
     transform: translateY(-3px);
 }
 
+/* Ensure hover works inside Streamlit markdown containers */
+[data-testid="stMarkdownContainer"] .hubble-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+    transform: translateY(-3px) !important;
+}
+
 .hubble-card-clickable {
     cursor: pointer;
 }

@@ -603,35 +603,31 @@ if "week_start" in bt_df.columns:
             if explorer_rows:
                 explorer_df = pd.DataFrame(explorer_rows)
 
-                # Display table and chart
-                exp_table_col, exp_chart_col = st.columns([1, 1.5])
+                # Format table for display (full width)
+                display_exp = explorer_df.copy()
+                display_exp["Actual (M)"] = display_exp["Actual (M)"].apply(lambda x: f"{x:.2f}")
+                display_exp["ML Pred (M)"] = display_exp["ML Pred (M)"].apply(lambda x: f"{x:.2f}")
+                display_exp["ML P10 (M)"] = display_exp["ML P10 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+                display_exp["ML P90 (M)"] = display_exp["ML P90 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+                display_exp["LP Pred (M)"] = display_exp["LP Pred (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+                display_exp["ML WAPE"] = display_exp["ML WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
+                display_exp["LP WAPE"] = display_exp["LP WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
 
-                with exp_table_col:
-                    # Format for display
-                    display_exp = explorer_df.copy()
-                    display_exp["Actual (M)"] = display_exp["Actual (M)"].apply(lambda x: f"{x:.2f}")
-                    display_exp["ML Pred (M)"] = display_exp["ML Pred (M)"].apply(lambda x: f"{x:.2f}")
-                    display_exp["ML P10 (M)"] = display_exp["ML P10 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
-                    display_exp["ML P90 (M)"] = display_exp["ML P90 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
-                    display_exp["LP Pred (M)"] = display_exp["LP Pred (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
-                    display_exp["ML WAPE"] = display_exp["ML WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
-                    display_exp["LP WAPE"] = display_exp["LP WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
+                # Reorder columns for better readability
+                col_order = ["Horizon", "Target Week", "Actual (M)", "ML Pred (M)", "ML P10 (M)", "ML P90 (M)", "LP Pred (M)", "ML WAPE", "LP WAPE", "Winner"]
+                col_order = [c for c in col_order if c in display_exp.columns]
+                display_exp = display_exp[col_order]
 
-                    # Reorder columns for better readability
-                    col_order = ["Horizon", "Target Week", "Actual (M)", "ML Pred (M)", "ML P10 (M)", "ML P90 (M)", "LP Pred (M)", "ML WAPE", "LP WAPE", "Winner"]
-                    col_order = [c for c in col_order if c in display_exp.columns]
-                    display_exp = display_exp[col_order]
+                st.dataframe(
+                    display_exp,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=340,
+                )
 
-                    st.dataframe(
-                        display_exp,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=350,
-                    )
-
-                with exp_chart_col:
-                    fig = create_week_explorer_chart(explorer_df, explorer_view)
-                    st.plotly_chart(fig, use_container_width=True)
+                # Chart (full width below table)
+                fig = create_week_explorer_chart(explorer_df, explorer_view)
+                st.plotly_chart(fig, use_container_width=True)
 
                 # Summary
                 ml_wins_exp = (explorer_df["Winner"] == "ML").sum()
