@@ -201,7 +201,7 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
         yaxis_title="EUR (Millions)",
         height=380,
         margin=dict(t=50, b=50, l=60, r=20),
-        showlegend=has_quantiles,
+        showlegend=bool(has_quantiles),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
         plot_bgcolor="white",
         paper_bgcolor="white",
@@ -441,7 +441,7 @@ if not net_summary_table.empty:
         icon_class = "green" if total_prediction >= 0 else "red"
         st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
             <div class="score-icon {icon_class}">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 10h12M4 14h12M7 4c-3 0-5 2.5-5 6s2 6 5 6c2 0 3.5-1 4.5-2.5"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 7.5C16.5 5.5 14.5 4 12 4c-4 0-7 3.5-7 8s3 8 7 8c2.5 0 4.5-1.5 5.5-3.5"/><line x1="3" y1="10" x2="13" y2="10"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
             </div>
             <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">NET Outlook</div>
             <div style="font-size: 1.4rem; font-weight: 700; color: {pred_color};">{total_prediction:.0f}M</div>
@@ -660,7 +660,7 @@ with tab_net:
                 yaxis_title="EUR (Millions)",
                 height=380,
                 margin=dict(t=60, b=50, l=60, r=20),
-                showlegend=has_quantiles,
+                showlegend=bool(has_quantiles),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
                 plot_bgcolor="white",
                 paper_bgcolor="white",
