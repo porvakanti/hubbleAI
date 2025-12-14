@@ -140,7 +140,7 @@ def create_horizon_table(df: pd.DataFrame, lg: str) -> pd.DataFrame:
 
 
 def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7D32") -> go.Figure:
-    """Create a bar chart with P10/P90 range shown as dotted lines."""
+    """Create a bar chart with P10/P90 range shown as error bars."""
     if table_df.empty:
         return go.Figure()
 
@@ -162,50 +162,51 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
         p10_vals = np.where(np.isnan(p10_raw), predictions, p10_raw)
         p90_vals = np.where(np.isnan(p90_raw), predictions, p90_raw)
 
-        # P90 line (dotted, on top)
-        fig.add_trace(go.Scatter(
-            x=horizons,
-            y=p90_vals,
-            mode="lines+markers",
-            name="P90 (Optimistic)",
-            line=dict(color=range_color, width=2, dash="dot"),
-            marker=dict(size=6, color=range_color),
-            hovertemplate="<b>%{x}</b><br>P90: %{y:.2f}M EUR<extra></extra>"
-        ))
+        # Calculate error bar distances
+        error_minus = predictions - p10_vals  # Distance down to P10
+        error_plus = p90_vals - predictions   # Distance up to P90
 
-        # P10 line (dotted)
-        fig.add_trace(go.Scatter(
+        # ML Prediction bars with error bars showing P10/P90 range
+        fig.add_trace(go.Bar(
             x=horizons,
-            y=p10_vals,
-            mode="lines+markers",
-            name="P10 (Conservative)",
-            line=dict(color=range_color, width=2, dash="dot"),
-            marker=dict(size=6, color=range_color),
-            hovertemplate="<b>%{x}</b><br>P10: %{y:.2f}M EUR<extra></extra>"
+            y=predictions,
+            name="Prediction",
+            marker_color=color,
+            text=[f"{v:.1f}M" for v in predictions],
+            textposition="outside",
+            error_y=dict(
+                type="data",
+                symmetric=False,
+                array=error_plus,
+                arrayminus=error_minus,
+                color=range_color,
+                thickness=2,
+                width=8,
+            ),
+            hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M<br>P10: %{customdata[0]:.2f}M<br>P90: %{customdata[1]:.2f}M<extra></extra>",
+            customdata=list(zip(p10_vals, p90_vals))
         ))
-
-    # ML Prediction bars
-    fig.add_trace(go.Bar(
-        x=horizons,
-        y=predictions,
-        name="Prediction",
-        marker_color=color,
-        text=[f"{v:.1f}M" for v in predictions],
-        textposition="outside",
-        hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M EUR<extra></extra>"
-    ))
+    else:
+        # ML Prediction bars without error bars
+        fig.add_trace(go.Bar(
+            x=horizons,
+            y=predictions,
+            name="Prediction",
+            marker_color=color,
+            text=[f"{v:.1f}M" for v in predictions],
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>Prediction: %{y:.2f}M EUR<extra></extra>"
+        ))
 
     fig.update_layout(
         title=dict(text=title, font=dict(size=14)),
         xaxis_title="Horizon",
         yaxis_title="EUR (Millions)",
-        height=380,
-        margin=dict(t=50, b=50, l=60, r=20),
-        showlegend=bool(has_quantiles),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
+        height=340,
+        margin=dict(t=40, b=40, l=50, r=20),
+        showlegend=False,
         plot_bgcolor="white",
         paper_bgcolor="white",
-        barmode="overlay",
     )
 
     fig.update_xaxes(showgrid=False)
@@ -405,16 +406,19 @@ if not net_summary_table.empty:
     total_p10 = net_summary_table["P10 (M)"].sum() if "P10 (M)" in net_summary_table.columns and net_summary_table["P10 (M)"].notna().any() else None
     total_p90 = net_summary_table["P90 (M)"].sum() if "P90 (M)" in net_summary_table.columns and net_summary_table["P90 (M)"].notna().any() else None
 
-    # Determine risk level
-    if total_p10 is not None and total_p10 < 0 and total_prediction > 0:
-        risk_level = "Moderate"
-        risk_color = "#F57C00"  # Orange
-    elif total_prediction < 0:
+    # Determine risk level with justification
+    if total_prediction < 0:
         risk_level = "High"
         risk_color = "#D32F2F"  # Red
+        risk_reason = "Deficit expected"
+    elif total_p10 is not None and total_p10 < 0:
+        risk_level = "Moderate"
+        risk_color = "#F57C00"  # Orange
+        risk_reason = "Downside risk to deficit"
     else:
         risk_level = "Low"
         risk_color = "#2E7D32"  # Green
+        risk_reason = "Surplus with limited downside"
 
     # CSS for score card icons
     icon_style = '''
@@ -497,7 +501,7 @@ if not net_summary_table.empty:
             </div>
             <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Risk Level</div>
             <div style="font-size: 1.4rem; font-weight: 700; color: {risk_color};">{risk_level}</div>
-            <div style="font-size: 0.75rem; color: #5A6169;">8-week outlook</div>
+            <div style="font-size: 0.75rem; color: {risk_color};">{risk_reason}</div>
         </div>''', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -606,11 +610,11 @@ with tab_net:
             )
 
         with col_chart:
-            # NET chart with colors for positive/negative and dotted P10/P90 lines
+            # NET chart with colors for positive/negative and P10/P90 error bars
             predictions = net_table["Prediction (M)"].values
             horizons = net_table["Horizon"].tolist()
             colors = ["#2E7D32" if v >= 0 else "#D32F2F" for v in predictions]
-            range_color = "#2C5AA0"  # Nogaro blue metallic
+            range_color = "#2C5AA0"  # Nogaro blue metallic for error bars
             fig = go.Figure()
 
             # Check if we have P10/P90 data
@@ -623,48 +627,51 @@ with tab_net:
                 p10_vals = np.where(np.isnan(p10_raw), predictions, p10_raw)
                 p90_vals = np.where(np.isnan(p90_raw), predictions, p90_raw)
 
-                # P90 line (dotted)
-                fig.add_trace(go.Scatter(
-                    x=horizons, y=p90_vals,
-                    mode="lines+markers",
-                    name="P90 (Optimistic)",
-                    line=dict(color=range_color, width=2, dash="dot"),
-                    marker=dict(size=6, color=range_color),
-                    hovertemplate="<b>%{x}</b><br>P90: %{y:.2f}M EUR<extra></extra>"
-                ))
+                # Calculate error bar distances
+                error_minus = predictions - p10_vals  # Distance down to P10
+                error_plus = p90_vals - predictions   # Distance up to P90
 
-                # P10 line (dotted)
-                fig.add_trace(go.Scatter(
-                    x=horizons, y=p10_vals,
-                    mode="lines+markers",
-                    name="P10 (Conservative)",
-                    line=dict(color=range_color, width=2, dash="dot"),
-                    marker=dict(size=6, color=range_color),
-                    hovertemplate="<b>%{x}</b><br>P10: %{y:.2f}M EUR<extra></extra>"
+                # NET Prediction bars with error bars showing P10/P90 range
+                fig.add_trace(go.Bar(
+                    x=horizons,
+                    y=predictions,
+                    name="Prediction",
+                    marker_color=colors,
+                    text=[f"{v:.1f}M" for v in predictions],
+                    textposition="outside",
+                    error_y=dict(
+                        type="data",
+                        symmetric=False,
+                        array=error_plus,
+                        arrayminus=error_minus,
+                        color=range_color,
+                        thickness=2,
+                        width=8,
+                    ),
+                    hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M<br>P10: %{customdata[0]:.2f}M<br>P90: %{customdata[1]:.2f}M<extra></extra>",
+                    customdata=list(zip(p10_vals, p90_vals))
                 ))
-
-            # NET Prediction bars
-            fig.add_trace(go.Bar(
-                x=horizons,
-                y=predictions,
-                name="Prediction",
-                marker_color=colors,
-                text=[f"{v:.1f}M" for v in predictions],
-                textposition="outside",
-                hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M EUR<extra></extra>"
-            ))
+            else:
+                # NET Prediction bars without error bars
+                fig.add_trace(go.Bar(
+                    x=horizons,
+                    y=predictions,
+                    name="Prediction",
+                    marker_color=colors,
+                    text=[f"{v:.1f}M" for v in predictions],
+                    textposition="outside",
+                    hovertemplate="<b>%{x}</b><br>NET: %{y:.2f}M EUR<extra></extra>"
+                ))
 
             fig.update_layout(
                 title=dict(text="NET Position by Horizon", font=dict(size=14)),
                 xaxis_title="Horizon",
                 yaxis_title="EUR (Millions)",
-                height=380,
-                margin=dict(t=60, b=50, l=60, r=20),
-                showlegend=bool(has_quantiles),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
+                height=340,
+                margin=dict(t=40, b=40, l=50, r=20),
+                showlegend=False,
                 plot_bgcolor="white",
                 paper_bgcolor="white",
-                barmode="overlay",
             )
             fig.update_xaxes(showgrid=False)
             fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(0,0,0,0.05)", zeroline=True, zerolinecolor="rgba(0,0,0,0.2)")
