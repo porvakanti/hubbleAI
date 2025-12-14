@@ -49,7 +49,7 @@ from hubbleAI.service import (
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Cash Outlook - Hubble.AI",
+    page_title="Cash Flow Outlook - Hubble.AI",
     page_icon="H",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -70,7 +70,7 @@ if forward_status:
         "run_id": forward_status.get("run_id", "-"),
     }
 
-render_sidebar(active_page="Cash Outlook", ref_info=ref_info)
+render_sidebar(active_page="Cash Flow Outlook", ref_info=ref_info)
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -206,7 +206,7 @@ def create_forecast_chart(table_df: pd.DataFrame, title: str, color: str = "#2E7
 st.markdown("""
 <div style="margin-bottom: 1.5rem;">
     <h1 style="margin-bottom: 0.25rem; font-size: 1.75rem; font-weight: 700; color: #2D3436;">
-        Cash Outlook
+        Cash Flow Outlook
     </h1>
     <p style="color: #5A6169; font-size: 0.95rem;">
         8-week cashflow predictions with confidence intervals
