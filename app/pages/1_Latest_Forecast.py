@@ -1,12 +1,13 @@
 """
-Page 1 - Latest Forecast (Operations View)
+Page 1 - Cash Flows
 
 Shows:
-- Data health status
-- Latest forward run status
 - 8-week forecast horizon with P10/P50/P90
-- Separate views for TRR, TRP, and NET
+- Separate views for TRR (Inflows), TRP (Outflows), and NET
+- NET summary with risk assessment
 - Treasury interpretation guidance
+
+For system administration (run forecasts, upload data), use the Admin page.
 
 Design: Modern, warm cream palette using shared UI components.
 """
@@ -30,18 +31,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from ui_components import (
     set_global_style,
     render_sidebar,
-    render_metric_card,
     render_interpretation_box,
-    format_millions,
-    format_currency_millions,
     APP_VERSION,
 )
 from hubbleAI.service import (
-    get_data_health_summary,
     load_latest_forward_forecast,
     get_last_run_by_mode,
     validate_forward_predictions,
-    prepare_forecast_views,
 )
 
 # ---------------------------------------------------------------------------
@@ -235,138 +231,7 @@ st.markdown("""
 # Load Data
 # ---------------------------------------------------------------------------
 
-health = get_data_health_summary()
 forecast_view = load_latest_forward_forecast()
-
-# ---------------------------------------------------------------------------
-# Top KPI Cards
-# ---------------------------------------------------------------------------
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    if forward_status:
-        status_val = forward_status.get("status", "unknown").upper()
-        status_date = forward_status.get("ref_week_start", "-")
-        if isinstance(status_date, str) and len(status_date) > 10:
-            status_date = status_date[:10]
-    else:
-        status_val = "NO RUNS"
-        status_date = "-"
-
-    st.markdown(render_metric_card(
-        header="Run Status",
-        value=status_val,
-        subtitle=f"Ref: {status_date}",
-        accent=status_val == "SUCCESS"
-    ), unsafe_allow_html=True)
-
-with col2:
-    ready_text = "READY" if health["is_ready"] else "INCOMPLETE"
-    missing_count = len(health.get("missing_inputs", []))
-    subtitle = "All files present" if health["is_ready"] else f"{missing_count} file(s) missing"
-
-    st.markdown(render_metric_card(
-        header="Data Health",
-        value=ready_text,
-        subtitle=subtitle,
-        accent=health["is_ready"]
-    ), unsafe_allow_html=True)
-
-with col3:
-    if forecast_view:
-        n_rows = len(forecast_view.forecasts_df)
-        n_entities = forecast_view.forecasts_df["entity"].nunique() if "entity" in forecast_view.forecasts_df.columns else 0
-    else:
-        n_rows = 0
-        n_entities = 0
-
-    st.markdown(render_metric_card(
-        header="Forecast Rows",
-        value=f"{n_rows:,}",
-        subtitle=f"{n_entities} entities"
-    ), unsafe_allow_html=True)
-
-with col4:
-    st.markdown(render_metric_card(
-        header="Schedule",
-        value="WEEKLY",
-        subtitle="Every Tuesday"
-    ), unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ---------------------------------------------------------------------------
-# Actions & Details Row
-# ---------------------------------------------------------------------------
-
-left_col, right_col = st.columns([1, 2])
-
-with left_col:
-    st.markdown('<div class="section-title">Actions</div>', unsafe_allow_html=True)
-
-    if st.button("Run Forward Forecast", type="primary", use_container_width=True):
-        try:
-            from hubbleAI.pipeline import run_forecast
-            with st.spinner("Running forecast... this may take a few minutes"):
-                result = run_forecast(mode="forward", trigger_source="manual")
-            if result.status == "success":
-                st.success("Forecast completed!")
-            else:
-                st.error(f"Failed: {result.message}")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    if st.button("Run Backtest", use_container_width=True):
-        try:
-            from hubbleAI.pipeline import run_forecast
-            with st.spinner("Running backtest..."):
-                result = run_forecast(mode="backtest", trigger_source="manual")
-            if result.status == "success":
-                st.success("Backtest completed!")
-            else:
-                st.error(f"Failed: {result.message}")
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    st.caption("Production runs are automated weekly.")
-
-    # Data health details
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Data Health</div>', unsafe_allow_html=True)
-
-    details = health.get("details", {})
-    for name, info in details.items():
-        if info.get("exists"):
-            status_icon = "✓" if info.get("healthy") else "!"
-            status_color = "#2E7D32" if info.get("healthy") else "#F57C00"
-            st.markdown(f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06);"><span style="color: {status_color}; font-weight: 600; width: 16px;">{status_icon}</span><span style="font-weight: 500;">{name.upper()}</span></div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06);"><span style="color: #D32F2F; font-weight: 600; width: 16px;">✗</span><span style="font-weight: 500;">{name.upper()}</span></div>', unsafe_allow_html=True)
-
-with right_col:
-    st.markdown('<div class="section-title">Last Run Details</div>', unsafe_allow_html=True)
-
-    if forward_status:
-        run_id = forward_status.get('run_id', 'N/A')
-        mode = forward_status.get('mode', 'N/A')
-        trigger = forward_status.get('trigger_source', 'N/A')
-        status = forward_status.get('status', 'N/A').upper()
-        as_of = forward_status.get('as_of_date', 'N/A')
-        created = forward_status.get('created_at', 'N/A')
-        if isinstance(created, str) and len(created) > 19:
-            created = created[:19].replace('T', ' ')
-        message = forward_status.get('message', '')
-
-        # Build as single HTML block to avoid empty element issue
-        message_html = f'<div style="grid-column: 1 / -1; padding-top: 0.5rem; border-top: 1px solid rgba(0,0,0,0.06);"><strong>Message:</strong> {message}</div>' if message else ''
-
-        st.markdown(f'''<div class="hubble-card hubble-card-sm"><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;"><div><strong>Run ID:</strong> <code style="font-size: 0.85rem;">{run_id}</code></div><div><strong>Status:</strong> {status}</div><div><strong>Mode:</strong> {mode}</div><div><strong>As-of Date:</strong> {as_of}</div><div><strong>Trigger:</strong> {trigger}</div><div><strong>Created:</strong> {created}</div>{message_html}</div></div>''', unsafe_allow_html=True)
-    else:
-        st.info("No forward forecast run found yet. Click 'Run Forward Forecast' to generate one.")
-
-st.markdown("---")
 
 # ---------------------------------------------------------------------------
 # 8-Week Forecast Section
@@ -375,7 +240,8 @@ st.markdown("---")
 st.markdown('<div class="section-title">8-Week Forecast by Liquidity Group</div>', unsafe_allow_html=True)
 
 if forecast_view is None:
-    st.warning("No forecast data available. Run a forward forecast first.")
+    st.warning("No forecast data available.")
+    st.info("Go to **Admin** page to run a forward forecast or upload new data files.")
     st.stop()
 
 df = forecast_view.forecasts_df.copy()
