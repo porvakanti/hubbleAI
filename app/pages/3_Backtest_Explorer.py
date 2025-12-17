@@ -4,7 +4,7 @@ Page 3 - Backtest Explorer
 Shows:
 - Week-by-week drill-down into backtest predictions
 - Compare Actual vs ML vs LP for each horizon (H1-H8)
-- P10/P90 confidence intervals on ML predictions
+- P10/P50/P90 quantiles on ML predictions
 
 Design: Modern, warm cream palette using shared UI components.
 """
@@ -273,6 +273,7 @@ for h in range(1, 9):
         if pd.isna(ml_pred):
             ml_pred = subset["y_pred_point"].sum()
         ml_p10 = subset["y_pred_p10"].sum() if "y_pred_p10" in subset.columns and subset["y_pred_p10"].notna().any() else None
+        ml_p50 = subset["y_pred_p50"].sum() if "y_pred_p50" in subset.columns and subset["y_pred_p50"].notna().any() else None
         ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
     elif explorer_view == "NET":
         # For NET: sum TRR point + TRP hybrid/point
@@ -291,14 +292,18 @@ for h in range(1, 9):
 
         # Quantiles for NET (sum of both LGs)
         trr_p10 = trr_data["y_pred_p10"].sum() if "y_pred_p10" in trr_data.columns and trr_data["y_pred_p10"].notna().any() else 0
+        trr_p50 = trr_data["y_pred_p50"].sum() if "y_pred_p50" in trr_data.columns and trr_data["y_pred_p50"].notna().any() else 0
         trr_p90 = trr_data["y_pred_p90"].sum() if "y_pred_p90" in trr_data.columns and trr_data["y_pred_p90"].notna().any() else 0
         trp_p10 = trp_data["y_pred_p10"].sum() if "y_pred_p10" in trp_data.columns and trp_data["y_pred_p10"].notna().any() else 0
+        trp_p50 = trp_data["y_pred_p50"].sum() if "y_pred_p50" in trp_data.columns and trp_data["y_pred_p50"].notna().any() else 0
         trp_p90 = trp_data["y_pred_p90"].sum() if "y_pred_p90" in trp_data.columns and trp_data["y_pred_p90"].notna().any() else 0
         ml_p10 = (trr_p10 + trp_p10) if (trr_p10 != 0 or trp_p10 != 0) else None
+        ml_p50 = (trr_p50 + trp_p50) if (trr_p50 != 0 or trp_p50 != 0) else None
         ml_p90 = (trr_p90 + trp_p90) if (trr_p90 != 0 or trp_p90 != 0) else None
     else:
         ml_pred = subset["y_pred_point"].sum() if "y_pred_point" in subset.columns else 0
         ml_p10 = subset["y_pred_p10"].sum() if "y_pred_p10" in subset.columns and subset["y_pred_p10"].notna().any() else None
+        ml_p50 = subset["y_pred_p50"].sum() if "y_pred_p50" in subset.columns and subset["y_pred_p50"].notna().any() else None
         ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
 
     lp_pred = subset["lp_baseline_point"].sum() if "lp_baseline_point" in subset.columns else float("nan")
@@ -333,6 +338,7 @@ for h in range(1, 9):
         "Actual (M)": actual / 1e6,
         "ML Pred (M)": ml_pred / 1e6,
         "ML P10 (M)": ml_p10 / 1e6 if ml_p10 is not None else None,
+        "ML P50 (M)": ml_p50 / 1e6 if ml_p50 is not None else None,
         "ML P90 (M)": ml_p90 / 1e6 if ml_p90 is not None else None,
         "LP Pred (M)": lp_pred / 1e6 if pd.notna(lp_pred) else None,
         "ML WAPE": ml_wape,
@@ -357,13 +363,14 @@ display_exp = explorer_df.copy()
 display_exp["Actual (M)"] = display_exp["Actual (M)"].apply(lambda x: f"{x:.2f}")
 display_exp["ML Pred (M)"] = display_exp["ML Pred (M)"].apply(lambda x: f"{x:.2f}")
 display_exp["ML P10 (M)"] = display_exp["ML P10 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+display_exp["ML P50 (M)"] = display_exp["ML P50 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
 display_exp["ML P90 (M)"] = display_exp["ML P90 (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
 display_exp["LP Pred (M)"] = display_exp["LP Pred (M)"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
 display_exp["ML WAPE"] = display_exp["ML WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
 display_exp["LP WAPE"] = display_exp["LP WAPE"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-")
 
 # Reorder columns for better readability
-col_order = ["Horizon", "Target Week", "Actual (M)", "ML Pred (M)", "ML P10 (M)", "ML P90 (M)", "LP Pred (M)", "ML WAPE", "LP WAPE", "Winner"]
+col_order = ["Horizon", "Target Week", "Actual (M)", "ML Pred (M)", "ML P10 (M)", "ML P50 (M)", "ML P90 (M)", "LP Pred (M)", "ML WAPE", "LP WAPE", "Winner"]
 col_order = [c for c in col_order if c in display_exp.columns]
 display_exp = display_exp[col_order]
 
