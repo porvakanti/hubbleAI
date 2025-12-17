@@ -980,6 +980,7 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
 
         st.markdown('<div class="sidebar-nav">', unsafe_allow_html=True)
 
+        # Main navigation items
         nav_items = [
             ("Overview", "streamlit_app.py"),
             ("Cash Flows", "pages/1_Latest_Forecast.py"),
@@ -997,6 +998,26 @@ def render_sidebar(active_page: str = "Overview", ref_info: Optional[Dict[str, A
             ):
                 if not is_active:
                     st.switch_page(page_path)
+
+        # Visual separator before Admin
+        st.markdown("""
+        <div style="margin: 1rem 0; padding: 0.5rem 0; border-top: 1px solid var(--border-light);">
+            <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 0.5rem;">
+                System
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Admin navigation
+        is_admin_active = active_page == "Admin"
+        if st.button(
+            "⚙️ Admin",
+            key="nav_Admin",
+            use_container_width=True,
+            type="primary" if is_admin_active else "secondary"
+        ):
+            if not is_admin_active:
+                st.switch_page("pages/9_Admin.py")
 
         st.markdown('</div>', unsafe_allow_html=True)
 
