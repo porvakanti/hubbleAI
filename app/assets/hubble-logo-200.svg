@@ -1,0 +1,16 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background rounded square -->
+    <rect width="200" height="200" rx="40" fill="#1a1a1a"/>
+
+    <!-- Outer lens circle -->
+    <circle cx="100" cy="85" r="50" stroke="#D4AF37" stroke-width="12" fill="none"/>
+
+    <!-- Inner lens dot -->
+    <circle cx="100" cy="85" r="18" fill="#D4AF37"/>
+
+    <!-- Telescope stand (vertical) -->
+    <line x1="100" y1="135" x2="100" y2="170" stroke="#D4AF37" stroke-width="12" stroke-linecap="round"/>
+
+    <!-- Telescope base (horizontal) -->
+    <line x1="65" y1="168" x2="135" y2="168" stroke="#D4AF37" stroke-width="10" stroke-linecap="round"/>
+</svg>
