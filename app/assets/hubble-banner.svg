@@ -1,0 +1,22 @@
+<svg width="600" height="120" viewBox="0 0 600 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background -->
+    <rect width="600" height="120" fill="#1a1a1a"/>
+
+    <!-- Logo icon -->
+    <g transform="translate(30, 15)">
+        <rect width="90" height="90" rx="18" fill="#2a2a2a"/>
+        <circle cx="45" cy="38" r="22" stroke="#D4AF37" stroke-width="5" fill="none"/>
+        <circle cx="45" cy="38" r="8" fill="#D4AF37"/>
+        <line x1="45" y1="60" x2="45" y2="76" stroke="#D4AF37" stroke-width="5" stroke-linecap="round"/>
+        <line x1="30" y1="74" x2="60" y2="74" stroke="#D4AF37" stroke-width="4" stroke-linecap="round"/>
+    </g>
+
+    <!-- Text: Hubble.AI -->
+    <text x="140" y="58" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="42" font-weight="700" fill="#FFFFFF">Hubble.AI</text>
+
+    <!-- Subtitle -->
+    <text x="140" y="88" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="400" fill="#D4AF37">Treasury Cash Flow Forecasting</text>
+
+    <!-- Decorative line -->
+    <line x1="140" y1="98" x2="380" y2="98" stroke="#D4AF37" stroke-width="2" opacity="0.5"/>
+</svg>
