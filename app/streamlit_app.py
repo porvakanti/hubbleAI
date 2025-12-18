@@ -209,6 +209,10 @@ st.markdown("""
 .nav-card-footer .arrow { font-weight: 600; font-size: 1.1rem; }
 .arrow.green { color: #2E7D32; }
 .arrow.blue { color: #1976D2; }
+.arrow.purple { color: #5E35B1; }
+.arrow.gray { color: #455A64; }
+.link-text.purple { color: #5E35B1; }
+.link-text.gray { color: #455A64; }
 
 /* Style page_link as footer link (not a button) */
 .nav-card-link {
@@ -264,6 +268,30 @@ st.markdown("""
 .clickable-nav-card:hover .nav-card-link .arrow.blue {
     transform: translateX(4px);
     color: #0D47A1;
+}
+.clickable-nav-card:hover .nav-card-link.purple-link {
+    background: linear-gradient(135deg, #EDE7F6 0%, #D1C4E9 100%);
+    border-top: 1px solid #B39DDB;
+}
+.clickable-nav-card:hover .nav-card-link.gray-link {
+    background: linear-gradient(135deg, #ECEFF1 0%, #CFD8DC 100%);
+    border-top: 1px solid #B0BEC5;
+}
+.clickable-nav-card:hover .link-text.purple {
+    color: #4527A0;
+    font-weight: 600;
+}
+.clickable-nav-card:hover .link-text.gray {
+    color: #37474F;
+    font-weight: 600;
+}
+.clickable-nav-card:hover .nav-card-link .arrow.purple {
+    transform: translateX(4px);
+    color: #4527A0;
+}
+.clickable-nav-card:hover .nav-card-link .arrow.gray {
+    transform: translateX(4px);
+    color: #37474F;
 }
 
 /* Hide default page_link styling, make it cover the footer */
@@ -340,9 +368,9 @@ with col_left2:
                 <p>Drill down into historical predictions week by week. Compare actual vs forecasted values.</p>
             </div>
         </div>
-        <div class="nav-card-link" style="pointer-events: none;">
-            <span class="link-text" style="color: #5E35B1;">Historical Analysis</span>
-            <span class="arrow" style="color: #5E35B1;">→</span>
+        <div class="nav-card-link purple-link">
+            <span class="link-text purple">Historical Analysis</span>
+            <span class="arrow purple">→</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -360,9 +388,9 @@ with col_right2:
                 <p>Run forecasts, upload data files, and manage system settings.</p>
             </div>
         </div>
-        <div class="nav-card-link" style="pointer-events: none;">
-            <span class="link-text" style="color: #455A64;">System Settings</span>
-            <span class="arrow" style="color: #455A64;">→</span>
+        <div class="nav-card-link gray-link">
+            <span class="link-text gray">System Settings</span>
+            <span class="arrow gray">→</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
