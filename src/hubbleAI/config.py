@@ -160,6 +160,23 @@ DEFAULT_LGBM_PARAMS: Dict = {
     "verbosity": -1,
 }
 
+# Quantile-specific LightGBM parameters
+# Optimized for better tail estimation (P10/P90 calibration)
+# - Lower min_data_in_leaf: allows finer splits for extreme quantiles
+# - Lower lambda_l2: less regularization to avoid shrinking extreme predictions
+QUANTILE_LGBM_PARAMS: Dict = {
+    "objective": "quantile",
+    "metric": "quantile",
+    "learning_rate": 0.05,
+    "num_leaves": 31,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 5,
+    "min_data_in_leaf": 20,  # Lower than regression (50) for better tail estimation
+    "lambda_l2": 0.1,         # Less regularization for extreme quantiles
+    "verbosity": -1,
+}
+
 # Training settings
 NUM_BOOST_ROUND: int = 2000
 EARLY_STOPPING_ROUNDS: int = 50

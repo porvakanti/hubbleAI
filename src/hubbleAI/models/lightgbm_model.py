@@ -15,6 +15,7 @@ import lightgbm as lgb
 
 from hubbleAI.config import (
     DEFAULT_LGBM_PARAMS,
+    QUANTILE_LGBM_PARAMS,
     NUM_BOOST_ROUND,
     EARLY_STOPPING_ROUNDS,
     TRAIN_RATIO,
@@ -202,11 +203,9 @@ def train_lgbm_quantile_model(
         Tuple of (model, val_metrics, best_iteration).
         val_metrics includes 'pinball_loss' for the validation set.
     """
-    # Build quantile-specific params
-    params = DEFAULT_LGBM_PARAMS.copy()
-    params["objective"] = "quantile"
+    # Use quantile-specific params (optimized for better tail estimation)
+    params = QUANTILE_LGBM_PARAMS.copy()
     params["alpha"] = alpha
-    params["metric"] = "quantile"
 
     # Split data
     train_df = df[df["split"] == "train"]
