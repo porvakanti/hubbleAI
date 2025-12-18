@@ -1,9 +1,9 @@
 <svg width="600" height="120" viewBox="0 0 600 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <!-- Background gradient (purple/magenta like Claude Code Pilot) -->
+    <!-- Background gradient (purple to magenta like Claude Code Pilot) -->
     <defs>
         <linearGradient id="bannerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" style="stop-color:#667eea"/>
-            <stop offset="100%" style="stop-color:#764ba2"/>
+            <stop offset="0%" style="stop-color:#5D3A8E"/>
+            <stop offset="100%" style="stop-color:#A83279"/>
         </linearGradient>
     </defs>
     <rect width="600" height="120" fill="url(#bannerGradient)"/>
