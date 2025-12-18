@@ -190,11 +190,17 @@ def create_weekly_comparison_table(df_wape: pd.DataFrame) -> pd.DataFrame:
     df["week_start"] = pd.to_datetime(df["week_start"])
     df = df.sort_values("week_start", ascending=False)
 
+    # Replace N/A winner with more descriptive text
+    def format_winner(row):
+        if row["winner"] == "N/A":
+            return "Pending"  # Actuals not yet available
+        return row["winner"]
+
     display_df = pd.DataFrame({
         "Week": df["week_start"].dt.strftime("%Y-%m-%d"),
         "ML WAPE": df["ml_wape"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-"),
         "LP WAPE": df["lp_wape"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-"),
-        "Winner": df["winner"],
+        "Winner": df.apply(format_winner, axis=1),
     })
 
     return display_df
@@ -369,8 +375,9 @@ else:
             display_table,
             use_container_width=True,
             hide_index=True,
-            height=400,
+            height=370,
         )
+        st.caption("**Pending** = Actuals not yet available for WAPE calculation")
 
     # Summary interpretation
     if total_valid > 0:

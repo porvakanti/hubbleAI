@@ -323,6 +323,51 @@ with col_right:
     """, unsafe_allow_html=True)
     st.page_link("pages/2_Performance_Dashboard.py", label=" ", use_container_width=True)
 
+st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+
+# Second row of navigation cards
+col_left2, col_right2 = st.columns(2, gap="large")
+
+with col_left2:
+    st.markdown("""
+    <div class="clickable-nav-card">
+        <div class="nav-card-header">
+            <div class="nav-card-icon" style="background: linear-gradient(135deg, #5E35B1 0%, #7E57C2 100%);">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <div class="nav-card-body">
+                <h3>Backtest Explorer</h3>
+                <p>Drill down into historical predictions week by week. Compare actual vs forecasted values.</p>
+            </div>
+        </div>
+        <div class="nav-card-link" style="pointer-events: none;">
+            <span class="link-text" style="color: #5E35B1;">Historical Analysis</span>
+            <span class="arrow" style="color: #5E35B1;">→</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.page_link("pages/3_Backtest_Explorer.py", label=" ", use_container_width=True)
+
+with col_right2:
+    st.markdown("""
+    <div class="clickable-nav-card">
+        <div class="nav-card-header">
+            <div class="nav-card-icon" style="background: linear-gradient(135deg, #455A64 0%, #78909C 100%);">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </div>
+            <div class="nav-card-body">
+                <h3>Admin</h3>
+                <p>Run forecasts, upload data files, and manage system settings.</p>
+            </div>
+        </div>
+        <div class="nav-card-link" style="pointer-events: none;">
+            <span class="link-text" style="color: #455A64;">System Settings</span>
+            <span class="arrow" style="color: #455A64;">→</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.page_link("pages/9_Admin.py", label=" ", use_container_width=True)
+
 st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------

@@ -306,7 +306,13 @@ for h in range(1, 9):
         ml_p50 = subset["y_pred_p50"].sum() if "y_pred_p50" in subset.columns and subset["y_pred_p50"].notna().any() else None
         ml_p90 = subset["y_pred_p90"].sum() if "y_pred_p90" in subset.columns and subset["y_pred_p90"].notna().any() else None
 
-    lp_pred = subset["lp_baseline_point"].sum() if "lp_baseline_point" in subset.columns else float("nan")
+    # LP baseline is only available for H1-H4
+    if h <= 4 and "lp_baseline_point" in subset.columns:
+        lp_sum = subset["lp_baseline_point"].sum()
+        # Treat 0.00 as N/A since LP baseline should have actual values when available
+        lp_pred = lp_sum if pd.notna(lp_sum) and abs(lp_sum) > 0.01 else float("nan")
+    else:
+        lp_pred = float("nan")
 
     # Get target week
     target = subset["target_week_start"].iloc[0] if "target_week_start" in subset.columns else None
@@ -378,8 +384,9 @@ st.dataframe(
     display_exp,
     use_container_width=True,
     hide_index=True,
-    height=340,
+    height=320,
 )
+st.caption("**LP Pred:** Only available for H1-H4. **Winner:** Based on lower WAPE (closer to actual).")
 
 # Chart (full width below table)
 fig = create_week_explorer_chart(explorer_df, explorer_view)

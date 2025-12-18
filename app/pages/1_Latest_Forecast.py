@@ -322,19 +322,19 @@ if not net_summary_table.empty:
         if total_p10 is not None:
             p10_color = "#D32F2F" if total_p10 < 0 else "#2E7D32"
             st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div class="score-icon red">
+                <div class="score-icon orange">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 9l-9 9-4-4-5 5"/></svg>
                 </div>
-                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Conservative Case</div>
                 <div style="font-size: 1.4rem; font-weight: 700; color: {p10_color};">{total_p10:.0f}M</div>
-                <div style="font-size: 0.75rem; color: #5A6169;">Conservative</div>
+                <div style="font-size: 0.75rem; color: #5A6169;">P10 · 10% chance of worse</div>
             </div>''', unsafe_allow_html=True)
         else:
             st.markdown('''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div class="score-icon red">
+                <div class="score-icon orange">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 9l-9 9-4-4-5 5"/></svg>
                 </div>
-                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Downside (P10)</div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Conservative Case</div>
                 <div style="font-size: 1.4rem; font-weight: 700; color: #9E9E9E;">N/A</div>
                 <div style="font-size: 0.75rem; color: #5A6169;">Not available</div>
             </div>''', unsafe_allow_html=True)
@@ -342,19 +342,19 @@ if not net_summary_table.empty:
     with card_col3:
         if total_p90 is not None:
             st.markdown(f'''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div class="score-icon green">
+                <div class="score-icon blue">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 15l-9-9-4 4-5-5"/></svg>
                 </div>
-                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Optimistic Case</div>
                 <div style="font-size: 1.4rem; font-weight: 700; color: #2E7D32;">{total_p90:.0f}M</div>
-                <div style="font-size: 0.75rem; color: #5A6169;">Optimistic</div>
+                <div style="font-size: 0.75rem; color: #5A6169;">P90 · 10% chance of better</div>
             </div>''', unsafe_allow_html=True)
         else:
             st.markdown('''<div class="hubble-card" style="text-align: center; padding: 1rem;">
-                <div class="score-icon green">
+                <div class="score-icon blue">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M21 15l-9-9-4 4-5-5"/></svg>
                 </div>
-                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Upside (P90)</div>
+                <div style="font-size: 0.7rem; color: #5A6169; text-transform: uppercase; letter-spacing: 0.5px;">Optimistic Case</div>
                 <div style="font-size: 1.4rem; font-weight: 700; color: #9E9E9E;">N/A</div>
                 <div style="font-size: 0.75rem; color: #5A6169;">Not available</div>
             </div>''', unsafe_allow_html=True)
