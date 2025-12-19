@@ -79,34 +79,14 @@ st.markdown("""
 # Quick Guide (Collapsible)
 # ---------------------------------------------------------------------------
 
-# CSS for the Quick Guide section
+# CSS for the Quick Guide section - aligned with app's hubble-card patterns
 st.markdown("""
 <style>
-.quick-guide-card {
-    background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
-    border: 1px solid #E8DCC8;
-    border-radius: 12px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.5rem;
-}
-.quick-guide-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-}
-.quick-guide-header svg {
-    color: #B8860B;
-}
-.quick-guide-header span {
-    font-weight: 600;
-    color: #5D4E37;
-    font-size: 0.9rem;
-}
 .quick-guide-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
+    margin-bottom: 0.5rem;
 }
 @media (max-width: 768px) {
     .quick-guide-grid {
@@ -115,42 +95,45 @@ st.markdown("""
 }
 .quick-guide-item {
     background: white;
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    border: 1px solid rgba(0,0,0,0.05);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.06);
 }
 .quick-guide-item h4 {
-    margin: 0 0 0.25rem 0;
-    font-size: 0.8rem;
-    color: #5D4E37;
+    margin: 0 0 0.5rem 0;
+    font-size: 0.85rem;
+    color: #2D3436;
     font-weight: 600;
 }
 .quick-guide-item p {
     margin: 0;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     color: #5A6169;
-    line-height: 1.4;
-}
-.quick-guide-item code {
-    background: #F5F0E8;
-    padding: 0.15rem 0.35rem;
-    border-radius: 4px;
-    font-size: 0.72rem;
-    color: #5D4E37;
-}
-.quick-guide-intro {
-    font-size: 0.82rem;
-    color: #5A6169;
-    margin-bottom: 0.75rem;
     line-height: 1.5;
 }
-.quick-guide-intro strong {
+.quick-guide-item code {
+    background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
     color: #5D4E37;
+    border: 1px solid #E8DCC8;
+}
+.quick-guide-intro {
+    font-size: 0.88rem;
+    color: #5A6169;
+    margin-bottom: 1rem;
+    line-height: 1.6;
+    padding: 0 0.25rem;
+}
+.quick-guide-intro strong {
+    color: #2D3436;
 }
 </style>
 """, unsafe_allow_html=True)
 
-with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
+with st.expander("📘 Quick Guide", expanded=False):
     st.markdown("""
     <div class="quick-guide-intro">
         Just as the <strong>Hubble Space Telescope</strong> revolutionized astronomy by enabling us to see deeper into the universe,
