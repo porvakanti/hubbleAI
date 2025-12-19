@@ -76,6 +76,129 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
+# Quick Guide (Collapsible)
+# ---------------------------------------------------------------------------
+
+# CSS for the Quick Guide section
+st.markdown("""
+<style>
+.quick-guide-card {
+    background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
+    border: 1px solid #E8DCC8;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+}
+.quick-guide-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.quick-guide-header svg {
+    color: #B8860B;
+}
+.quick-guide-header span {
+    font-weight: 600;
+    color: #5D4E37;
+    font-size: 0.9rem;
+}
+.quick-guide-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+@media (max-width: 768px) {
+    .quick-guide-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.quick-guide-item {
+    background: white;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(0,0,0,0.05);
+}
+.quick-guide-item h4 {
+    margin: 0 0 0.25rem 0;
+    font-size: 0.8rem;
+    color: #5D4E37;
+    font-weight: 600;
+}
+.quick-guide-item p {
+    margin: 0;
+    font-size: 0.78rem;
+    color: #5A6169;
+    line-height: 1.4;
+}
+.quick-guide-item code {
+    background: #F5F0E8;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    color: #5D4E37;
+}
+.quick-guide-intro {
+    font-size: 0.82rem;
+    color: #5A6169;
+    margin-bottom: 0.75rem;
+    line-height: 1.5;
+}
+.quick-guide-intro strong {
+    color: #5D4E37;
+}
+</style>
+""", unsafe_allow_html=True)
+
+with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
+    st.markdown("""
+    <div class="quick-guide-intro">
+        Just as the <strong>Hubble Space Telescope</strong> revolutionized astronomy by enabling us to see deeper into the universe,
+        <strong>Hubble.AI</strong> empowers Treasury to see further into the future — extending cash flow visibility from 4 weeks to 8 weeks
+        with improved accuracy.
+    </div>
+    <div class="quick-guide-intro">
+        <strong>The Challenge:</strong> Traditional liquidity plan (LP) forecasts faced accuracy limitations,
+        and visibility was capped at 4 weeks — making long-term liquidity planning difficult.
+    </div>
+    <div class="quick-guide-grid">
+        <div class="quick-guide-item">
+            <h4>📊 WAPE (Weighted Absolute Percentage Error)</h4>
+            <p>
+                Our primary accuracy metric. <strong>Lower = better.</strong><br/>
+                Formula: <code>|Σ Actuals − Σ Predictions| ÷ |Σ Actuals|</code><br/>
+                A 5% WAPE means €5 error for every €100 of actual cash flow.
+            </p>
+        </div>
+        <div class="quick-guide-item">
+            <h4>🤖 ML vs LP</h4>
+            <p>
+                <strong>ML</strong> = Our AI model trained on historical patterns.<br/>
+                <strong>LP</strong> = Treasury's baseline Liquidity Plan forecasts.<br/>
+                We compare both to show where ML adds value.
+            </p>
+        </div>
+        <div class="quick-guide-item">
+            <h4>📈 P10 / P50 / P90</h4>
+            <p>
+                Confidence intervals for uncertainty quantification.<br/>
+                <strong>P10</strong> = Conservative (10% chance of worse)<br/>
+                <strong>P50</strong> = Most likely outcome<br/>
+                <strong>P90</strong> = Optimistic (10% chance of better)
+            </p>
+        </div>
+        <div class="quick-guide-item">
+            <h4>🎯 Target Accuracy</h4>
+            <p>
+                WAPE goals by horizon: <strong>H1: 5%</strong>, H2: 7.5%, H3: 10%, H4: 12.5%,
+                H5: 15%, H6: 17.5%, H7: 20%, H8: 22.5%.<br/>
+                Longer horizons naturally have higher targets.
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
 # Quick Stats Row
 # ---------------------------------------------------------------------------
 
