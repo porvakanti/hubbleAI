@@ -82,6 +82,50 @@ st.markdown("""
 # CSS for the Quick Guide section - aligned with app's hubble-card patterns
 st.markdown("""
 <style>
+/* Expander styling for Quick Guide */
+[data-testid="stExpander"] details summary {
+    background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
+    border: 1px solid #E8DCC8;
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+}
+[data-testid="stExpander"] details summary:hover {
+    background: linear-gradient(135deg, #FFF8E7 0%, #FFEFCC 100%);
+    border-color: #D4AF37;
+}
+[data-testid="stExpander"] details[open] summary {
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+}
+[data-testid="stExpander"] details > div {
+    background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
+    border: 1px solid #E8DCC8;
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    padding: 1rem;
+}
+
+.quick-guide-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #E8DCC8;
+}
+.quick-guide-logo {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+}
+.quick-guide-tagline {
+    font-size: 0.9rem;
+    color: #5A6169;
+    line-height: 1.5;
+}
+.quick-guide-tagline strong {
+    color: #2D3436;
+}
 .quick-guide-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -99,9 +143,36 @@ st.markdown("""
     padding: 1rem 1.25rem;
     box-shadow: 0 2px 12px rgba(0,0,0,0.05);
     border: 1px solid rgba(0,0,0,0.06);
+    transition: all 0.2s ease;
+    cursor: default;
 }
+.quick-guide-item:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+    border-color: rgba(212,175,55,0.3);
+}
+.quick-guide-item-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.quick-guide-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.quick-guide-icon.gold { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); }
+.quick-guide-icon.green { background: linear-gradient(135deg, #2E7D32 0%, #4CAF50 100%); }
+.quick-guide-icon.blue { background: linear-gradient(135deg, #1976D2 0%, #42A5F5 100%); }
+.quick-guide-icon.purple { background: linear-gradient(135deg, #5E35B1 0%, #7E57C2 100%); }
+.quick-guide-icon svg { stroke: white; }
 .quick-guide-item h4 {
-    margin: 0 0 0.5rem 0;
+    margin: 0;
     font-size: 0.85rem;
     color: #2D3436;
     font-weight: 600;
@@ -121,11 +192,10 @@ st.markdown("""
     border: 1px solid #E8DCC8;
 }
 .quick-guide-intro {
-    font-size: 0.88rem;
+    font-size: 0.85rem;
     color: #5A6169;
     margin-bottom: 1rem;
     line-height: 1.6;
-    padding: 0 0.25rem;
 }
 .quick-guide-intro strong {
     color: #2D3436;
@@ -135,10 +205,18 @@ st.markdown("""
 
 with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
     st.markdown("""
-    <div class="quick-guide-intro">
-        Just as the <strong>Hubble Space Telescope</strong> revolutionized astronomy by enabling us to see deeper into the universe,
-        <strong>Hubble.AI</strong> empowers Treasury to see further into the future — extending cash flow visibility from 4 weeks to 8 weeks
-        with improved accuracy.
+    <div class="quick-guide-header">
+        <svg class="quick-guide-logo" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" rx="40" fill="#1a1a1a"/>
+            <circle cx="100" cy="85" r="50" stroke="#D4AF37" stroke-width="12" fill="none"/>
+            <circle cx="100" cy="85" r="18" fill="#D4AF37"/>
+            <line x1="100" y1="135" x2="100" y2="170" stroke="#D4AF37" stroke-width="12" stroke-linecap="round"/>
+            <line x1="65" y1="168" x2="135" y2="168" stroke="#D4AF37" stroke-width="10" stroke-linecap="round"/>
+        </svg>
+        <div class="quick-guide-tagline">
+            Just as the <strong>Hubble Space Telescope</strong> revolutionized astronomy by enabling us to see deeper into the universe,
+            <strong>Hubble.AI</strong> empowers Treasury to see further into the future — extending cash flow visibility from 4 weeks to 8 weeks with improved accuracy.
+        </div>
     </div>
     <div class="quick-guide-intro">
         <strong>The Challenge:</strong> Traditional liquidity plan (LP) forecasts faced accuracy limitations,
@@ -146,15 +224,25 @@ with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
     </div>
     <div class="quick-guide-grid">
         <div class="quick-guide-item">
-            <h4>📊 WAPE (Weighted Absolute Percentage Error)</h4>
+            <div class="quick-guide-item-header">
+                <div class="quick-guide-icon gold">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                </div>
+                <h4>WAPE</h4>
+            </div>
             <p>
-                Our primary accuracy metric. <strong>Lower = better.</strong><br/>
+                Weighted Absolute Percentage Error — our primary accuracy metric. <strong>Lower = better.</strong><br/>
                 Formula: <code>|Σ Actuals − Σ Predictions| ÷ |Σ Actuals|</code><br/>
                 A 5% WAPE means €5 error for every €100 of actual cash flow.
             </p>
         </div>
         <div class="quick-guide-item">
-            <h4>🤖 ML vs LP</h4>
+            <div class="quick-guide-item-header">
+                <div class="quick-guide-icon green">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><circle cx="12" cy="12" r="3"/></svg>
+                </div>
+                <h4>ML vs LP</h4>
+            </div>
             <p>
                 <strong>ML</strong> = Our AI model trained on historical patterns.<br/>
                 <strong>LP</strong> = Treasury's baseline Liquidity Plan forecasts.<br/>
@@ -162,16 +250,25 @@ with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
             </p>
         </div>
         <div class="quick-guide-item">
-            <h4>📈 P10 / P50 / P90</h4>
+            <div class="quick-guide-item-header">
+                <div class="quick-guide-icon blue">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                </div>
+                <h4>P10 / P50 / P90</h4>
+            </div>
             <p>
                 Confidence intervals for uncertainty quantification.<br/>
                 <strong>P10</strong> = Conservative (10% chance of worse)<br/>
-                <strong>P50</strong> = Most likely outcome<br/>
-                <strong>P90</strong> = Optimistic (10% chance of better)
+                <strong>P50</strong> = Most likely · <strong>P90</strong> = Optimistic (10% chance of better)
             </p>
         </div>
         <div class="quick-guide-item">
-            <h4>🎯 Target Accuracy</h4>
+            <div class="quick-guide-item-header">
+                <div class="quick-guide-icon purple">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                </div>
+                <h4>Target Accuracy</h4>
+            </div>
             <p>
                 WAPE goals by horizon: <strong>H1: 5%</strong>, H2: 7.5%, H3: 10%, H4: 12.5%,
                 H5: 15%, H6: 17.5%, H7: 20%, H8: 22.5%.<br/>
