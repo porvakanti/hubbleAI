@@ -147,14 +147,14 @@ def create_wape_line_chart(df_wape: pd.DataFrame, title: str, horizon: int = 1) 
     meets_target = df[df["ml_wape_pct"] <= target_wape]
     misses_target = df[df["ml_wape_pct"] > target_wape]
 
-    # ML line (continuous)
+    # ML line (continuous) - no hover, markers handle tooltips
     fig.add_trace(go.Scatter(
         x=df["week_start"],
         y=df["ml_wape_pct"],
         mode="lines",
         name="ML",
         line=dict(color="#2E7D32", width=2),
-        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>ML WAPE: %{y:.1f}%<extra></extra>"
+        hoverinfo="skip"
     ))
 
     # ML markers - weeks NOT meeting target (regular green)
