@@ -301,11 +301,29 @@ with st.expander("Quick Guide — New to Hubble.AI?", expanded=False):
                 </div>
                 <h4>Target Accuracy</h4>
             </div>
-            <p>
-                WAPE goals by horizon: <strong>H1: 5%</strong>, H2: 7.5%, H3: 10%, H4: 12.5%,
-                H5: 15%, H6: 17.5%, H7: 20%, H8: 22.5%.<br/>
-                Longer horizons naturally have higher targets.
-            </p>
+            <p style="margin-bottom: 0.5rem;">WAPE goals by horizon (longer horizons have higher targets):</p>
+            <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+                <tr style="background: #f8f9fa;">
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H1</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H2</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H3</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H4</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H5</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H6</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H7</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; font-weight: 600;">H8</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #2E7D32;">5%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #2E7D32;">7.5%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #558B2F;">10%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #558B2F;">12.5%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #F57C00;">15%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #F57C00;">17.5%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #E65100;">20%</td>
+                    <td style="padding: 0.25rem 0.4rem; border: 1px solid #e9ecef; color: #E65100;">22.5%</td>
+                </tr>
+            </table>
         </div>
     </div>
     """, unsafe_allow_html=True)
