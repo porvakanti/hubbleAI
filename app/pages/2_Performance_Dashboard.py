@@ -118,7 +118,10 @@ WAPE_TARGETS = {
 
 
 def create_wape_line_chart(df_wape: pd.DataFrame, title: str, horizon: int = 1) -> go.Figure:
-    """Create a line chart comparing ML vs LP WAPE over time with target line."""
+    """Create a line chart comparing ML vs LP WAPE over time with target line.
+
+    Highlights weeks where ML WAPE is at or below the target with gold markers.
+    """
     if df_wape.empty:
         return go.Figure()
 
@@ -139,16 +142,43 @@ def create_wape_line_chart(df_wape: pd.DataFrame, title: str, horizon: int = 1) 
         hovertemplate=f"Target: {target_wape}%<extra></extra>"
     ))
 
-    # ML line
+    # Separate weeks meeting target vs not
+    df["ml_wape_pct"] = df["ml_wape"] * 100
+    meets_target = df[df["ml_wape_pct"] <= target_wape]
+    misses_target = df[df["ml_wape_pct"] > target_wape]
+
+    # ML line (continuous)
     fig.add_trace(go.Scatter(
         x=df["week_start"],
-        y=df["ml_wape"] * 100,
-        mode="lines+markers",
+        y=df["ml_wape_pct"],
+        mode="lines",
         name="ML",
         line=dict(color="#2E7D32", width=2),
-        marker=dict(size=6),
         hovertemplate="<b>%{x|%Y-%m-%d}</b><br>ML WAPE: %{y:.1f}%<extra></extra>"
     ))
+
+    # ML markers - weeks NOT meeting target (regular green)
+    if not misses_target.empty:
+        fig.add_trace(go.Scatter(
+            x=misses_target["week_start"],
+            y=misses_target["ml_wape_pct"],
+            mode="markers",
+            name="ML (above target)",
+            marker=dict(size=8, color="#2E7D32"),
+            showlegend=False,
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>ML WAPE: %{y:.1f}%<extra></extra>"
+        ))
+
+    # ML markers - weeks MEETING target (gold star markers)
+    if not meets_target.empty:
+        fig.add_trace(go.Scatter(
+            x=meets_target["week_start"],
+            y=meets_target["ml_wape_pct"],
+            mode="markers",
+            name="Target Met",
+            marker=dict(size=12, color="#D4AF37", symbol="star", line=dict(width=1, color="#8B7500")),
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>ML WAPE: %{y:.1f}% ★ Target Met!<extra></extra>"
+        ))
 
     # LP line (only where available)
     lp_data = df[~df["lp_wape"].isna()]
@@ -181,8 +211,15 @@ def create_wape_line_chart(df_wape: pd.DataFrame, title: str, horizon: int = 1) 
     return fig
 
 
-def create_weekly_comparison_table(df_wape: pd.DataFrame) -> pd.DataFrame:
-    """Create formatted table for weekly comparison."""
+def format_currency(val: float) -> str:
+    """Format value as currency in millions."""
+    if pd.isna(val) or val == 0:
+        return "-"
+    return f"${val/1e6:.1f}M"
+
+
+def create_weekly_comparison_table(df_wape: pd.DataFrame, horizon: int = 1) -> pd.DataFrame:
+    """Create formatted table for weekly comparison with extended columns."""
     if df_wape.empty:
         return pd.DataFrame()
 
@@ -196,12 +233,24 @@ def create_weekly_comparison_table(df_wape: pd.DataFrame) -> pd.DataFrame:
             return "Pending"  # Actuals not yet available
         return row["winner"]
 
+    # Build the display dataframe with extended columns
     display_df = pd.DataFrame({
         "Week": df["week_start"].dt.strftime("%Y-%m-%d"),
+        "Actuals": df["actual_sum"].apply(format_currency),
+        "ML Pred": df["ml_pred_sum"].apply(format_currency),
+        "P10": df["p10_sum"].apply(format_currency) if "p10_sum" in df.columns else "-",
+        "P50": df["p50_sum"].apply(format_currency) if "p50_sum" in df.columns else "-",
+        "P90": df["p90_sum"].apply(format_currency) if "p90_sum" in df.columns else "-",
+        "LP Pred": df["lp_pred_sum"].apply(format_currency) if horizon <= 4 else "-",
         "ML WAPE": df["ml_wape"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-"),
-        "LP WAPE": df["lp_wape"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-"),
+        "LP WAPE": df["lp_wape"].apply(lambda x: f"{x*100:.1f}%" if pd.notna(x) else "-") if horizon <= 4 else "-",
         "Winner": df.apply(format_winner, axis=1),
     })
+
+    # For H5-H8, LP columns should show "-"
+    if horizon > 4:
+        display_df["LP Pred"] = "-"
+        display_df["LP WAPE"] = "-"
 
     return display_df
 
@@ -360,24 +409,25 @@ st.markdown('<div class="section-title">Weekly WAPE Comparison</div>', unsafe_al
 if df_wape.empty:
     st.info(f"No data available for {selected_view} H{selected_horizon}.")
 else:
-    chart_col, table_col = st.columns([2, 1])
+    # Full-width WAPE line chart
+    chart_title = f"{selected_view} H{selected_horizon} - ML vs LP WAPE Over Time"
+    fig = create_wape_line_chart(df_wape, chart_title, horizon=selected_horizon)
+    st.plotly_chart(fig, use_container_width=True)
+    target_pct = WAPE_TARGETS.get(selected_horizon, 10.0)
+    st.caption(f"Lower WAPE = Better accuracy. Target: {target_pct}% (dotted blue). ★ Gold stars = Target met. LP baseline: dashed orange.")
 
-    with chart_col:
-        chart_title = f"{selected_view} H{selected_horizon} - ML vs LP WAPE Over Time"
-        fig = create_wape_line_chart(df_wape, chart_title, horizon=selected_horizon)
-        st.plotly_chart(fig, use_container_width=True)
-        target_pct = WAPE_TARGETS.get(selected_horizon, 10.0)
-        st.caption(f"Lower WAPE = Better accuracy. Target: {target_pct}% (dotted blue). LP baseline: dashed orange.")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with table_col:
-        display_table = create_weekly_comparison_table(df_wape)
-        st.dataframe(
-            display_table,
-            use_container_width=True,
-            hide_index=True,
-            height=370,
-        )
-        st.caption("**Pending** = Actuals not yet available for WAPE calculation")
+    # Full-width detailed table
+    st.markdown('<div class="section-title">Weekly Details</div>', unsafe_allow_html=True)
+    display_table = create_weekly_comparison_table(df_wape, horizon=selected_horizon)
+    st.dataframe(
+        display_table,
+        use_container_width=True,
+        hide_index=True,
+        height=400,
+    )
+    st.caption("**Pending** = Actuals not yet available for WAPE calculation. Values in millions (M).")
 
     # Summary interpretation
     if total_valid > 0:
