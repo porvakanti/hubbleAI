@@ -189,6 +189,14 @@ st.markdown("""
     color: #2D3436;
     font-weight: 600;
 }
+/* Hide anchor links that appear on header hover */
+.quick-guide-item h4 a,
+.quick-guide-item h4::after,
+.quick-guide-item h4 .anchor-link,
+.quick-guide-item h4 [href^="#"] {
+    display: none !important;
+    visibility: hidden !important;
+}
 .quick-guide-item p {
     margin: 0;
     font-size: 0.8rem;
