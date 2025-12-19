@@ -82,7 +82,11 @@ st.markdown("""
 # CSS for the Quick Guide section - aligned with app's hubble-card patterns
 st.markdown("""
 <style>
-/* Expander styling for Quick Guide */
+/* Expander styling for Quick Guide - remove default borders, add custom styling */
+[data-testid="stExpander"] details {
+    border: none !important;
+    background: transparent !important;
+}
 [data-testid="stExpander"] details summary {
     background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
     border: 1px solid #E8DCC8;
@@ -95,9 +99,9 @@ st.markdown("""
 }
 [data-testid="stExpander"] details[open] summary {
     border-radius: 12px 12px 0 0;
-    border-bottom: none;
+    border-bottom: 1px solid #E8DCC8;
 }
-[data-testid="stExpander"] details > div {
+[data-testid="stExpander"] details[open] > div {
     background: linear-gradient(135deg, #FFFBF5 0%, #FFF8E7 100%);
     border: 1px solid #E8DCC8;
     border-top: none;
@@ -105,6 +109,14 @@ st.markdown("""
     padding: 1rem;
 }
 
+.quick-guide-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.quick-guide-label svg {
+    flex-shrink: 0;
+}
 .quick-guide-header {
     display: flex;
     align-items: center;
@@ -177,6 +189,14 @@ st.markdown("""
     color: #2D3436;
     font-weight: 600;
 }
+/* Hide anchor links that appear on header hover */
+.quick-guide-item h4 a,
+.quick-guide-item h4::after,
+.quick-guide-item h4 .anchor-link,
+.quick-guide-item h4 [href^="#"] {
+    display: none !important;
+    visibility: hidden !important;
+}
 .quick-guide-item p {
     margin: 0;
     font-size: 0.8rem;
@@ -203,7 +223,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
+# Custom expander with SVG icon instead of emoji
+st.markdown("""
+<style>
+/* Hide the default expander label text so we can replace it */
+[data-testid="stExpander"] summary span[data-testid="stMarkdownContainer"] p {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+with st.expander("Quick Guide — New to Hubble.AI?", expanded=False):
     st.markdown("""
     <div class="quick-guide-header">
         <svg class="quick-guide-logo" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -226,7 +258,7 @@ with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
         <div class="quick-guide-item">
             <div class="quick-guide-item-header">
                 <div class="quick-guide-icon gold">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
                 </div>
                 <h4>WAPE</h4>
             </div>
@@ -239,7 +271,7 @@ with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
         <div class="quick-guide-item">
             <div class="quick-guide-item-header">
                 <div class="quick-guide-icon green">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                 </div>
                 <h4>ML vs LP</h4>
             </div>
@@ -252,7 +284,7 @@ with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
         <div class="quick-guide-item">
             <div class="quick-guide-item-header">
                 <div class="quick-guide-icon blue">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
                 </div>
                 <h4>P10 / P50 / P90</h4>
             </div>
@@ -265,7 +297,7 @@ with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
         <div class="quick-guide-item">
             <div class="quick-guide-item-header">
                 <div class="quick-guide-icon purple">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
                 </div>
                 <h4>Target Accuracy</h4>
             </div>
