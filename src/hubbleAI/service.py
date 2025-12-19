@@ -850,6 +850,11 @@ def compute_weekly_wape_by_lg(
         ml_sum = grp[ml_col].sum() if ml_col in grp.columns else 0
         lp_sum = grp["lp_baseline_point"].sum() if "lp_baseline_point" in grp.columns else float("nan")
 
+        # Sum quantile predictions
+        p10_sum = grp["y_pred_p10"].sum() if "y_pred_p10" in grp.columns else float("nan")
+        p50_sum = grp["y_pred_p50"].sum() if "y_pred_p50" in grp.columns else float("nan")
+        p90_sum = grp["y_pred_p90"].sum() if "y_pred_p90" in grp.columns else float("nan")
+
         # Compute WAPE with guardrails
         ml_wape = float("nan")
         ml_undefined = True
@@ -881,6 +886,9 @@ def compute_weekly_wape_by_lg(
             "actual_sum": actual_sum,
             "ml_pred_sum": ml_sum,
             "lp_pred_sum": lp_sum,
+            "p10_sum": p10_sum,
+            "p50_sum": p50_sum,
+            "p90_sum": p90_sum,
             "ml_wape": ml_wape,
             "lp_wape": lp_wape,
             "ml_wape_undefined": ml_undefined,
@@ -946,6 +954,11 @@ def compute_net_weekly_wape(
         # Sum LP predictions
         lp_sum = grp["lp_baseline_point"].sum() if "lp_baseline_point" in grp.columns else float("nan")
 
+        # Sum quantile predictions
+        p10_sum = grp["y_pred_p10"].sum() if "y_pred_p10" in grp.columns else float("nan")
+        p50_sum = grp["y_pred_p50"].sum() if "y_pred_p50" in grp.columns else float("nan")
+        p90_sum = grp["y_pred_p90"].sum() if "y_pred_p90" in grp.columns else float("nan")
+
         # Compute WAPE
         ml_wape = float("nan")
         ml_undefined = True
@@ -977,6 +990,9 @@ def compute_net_weekly_wape(
             "actual_sum": actual_sum,
             "ml_pred_sum": ml_sum,
             "lp_pred_sum": lp_sum,
+            "p10_sum": p10_sum,
+            "p50_sum": p50_sum,
+            "p90_sum": p90_sum,
             "ml_wape": ml_wape,
             "lp_wape": lp_wape,
             "ml_wape_undefined": ml_undefined,
