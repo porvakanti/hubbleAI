@@ -133,7 +133,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-with st.expander("📘 Quick Guide", expanded=False):
+with st.expander("📘 Quick Guide — New to Hubble.AI?", expanded=False):
     st.markdown("""
     <div class="quick-guide-intro">
         Just as the <strong>Hubble Space Telescope</strong> revolutionized astronomy by enabling us to see deeper into the universe,
