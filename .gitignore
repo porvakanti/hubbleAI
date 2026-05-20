@@ -14,3 +14,6 @@ __pycache__/
 .env
 .venv/
 data/raw/20251120_eurofxref-hist.csv
+
+# IDE / tooling
+.claude/
